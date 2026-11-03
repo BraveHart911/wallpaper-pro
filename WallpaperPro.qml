@@ -61,18 +61,46 @@ Item {
         }
     }
     Process {
-        id: themePicker
-        command: ["omarchy", "theme", "switcher"]
-        stderr: StdioCollector {
-            onStreamFinished: if (text.trim()) root.operationError = text.trim()
+        id: themeListProcess
+        command: ["omarchy", "theme", "list"]
+        stdout: StdioCollector {
+            onStreamFinished: root.availableThemes = text.split("\n").map(name => name.trim()).filter(name => name.length > 0)
         }
+    }
+    Process {
+        id: currentThemeProcess
+        command: ["omarchy", "theme", "current"]
+        stdout: StdioCollector { onStreamFinished: root.currentThemeName = text.trim() }
+    }
+    Process {
+        id: currentBackgroundProcess
+        command: ["omarchy", "theme", "bg", "current"]
+        stdout: StdioCollector { onStreamFinished: root.currentBackground = text.trim() }
+    }
+    Process {
+        id: applyThemeProcess
+        command: ["omarchy", "theme", "set", root.pendingTheme]
+        stderr: StdioCollector { onStreamFinished: if (text.trim()) root.operationError = text.trim() }
         onExited: function(code, status) {
-            if (code !== 0) root.operationError = "Omarchy's theme picker could not be opened."
+            root.themeApplying = false
+            if (code !== 0) root.operationError = "Could not apply " + root.pendingTheme + "."
             else {
-                root.message = "Theme changed. Wallpaper Pro will refresh the theme palette and library."
+                root.currentThemeName = root.pendingTheme
+                root.currentBackground = ""
+                root.message = root.pendingTheme + " is now active. Refreshing wallpapers and colors…"
                 theme.refresh()
+                currentBackgroundProcess.running = true
                 if (root.automaticThemeSync) root.startThemeSync()
+                else root.run(["status"])
             }
+        }
+    }
+    Process {
+        id: nextBackgroundProcess
+        command: ["omarchy", "theme", "bg", "next"]
+        onExited: function(code, status) {
+            if (code === 0) currentBackgroundProcess.running = true
+            else root.operationError = "Could not change the Omarchy theme background."
         }
     }
     property var shell
@@ -81,6 +109,12 @@ Item {
     property var manifest
     property bool opened: false
     property string appWindowTitle: "Wallpaper Pro"
+    property var availableThemes: []
+    property string currentThemeName: ""
+    property string currentBackground: ""
+    property string themeSearch: ""
+    property string pendingTheme: ""
+    property bool themeApplying: false
     readonly property bool compact: panel.width < 900
     readonly property bool dark: (Qt.color(theme.colors.background).r + Qt.color(theme.colors.background).g + Qt.color(theme.colors.background).b) < 1.5
     readonly property color surface: Qt.tint(theme.colors.background, Qt.rgba(0.5, 0.5, 0.5, 0.07))
@@ -98,6 +132,7 @@ Item {
     property string searchQuery: ""
     readonly property string sortOrder: state.sortOrder || "original"
     readonly property var sortKeys: ["original", "name", "color"]
+    readonly property var filteredThemes: availableThemes.filter(name => name.toLowerCase().indexOf(themeSearch.trim().toLowerCase()) !== -1)
     function matchesSearch(item) {
         const terms = searchQuery.trim().toLowerCase().split(/\s+/).filter(term => term !== "")
         if (!terms.length) return true
@@ -137,7 +172,23 @@ Item {
         theme.refresh()
         if (automaticThemeSync) startThemeSync()
         if (!desktopCheck.running) desktopCheck.running = true
+        refreshThemeControls()
         run(["status"])
+    }
+    function refreshThemeControls() {
+        if (!themeListProcess.running) themeListProcess.running = true
+        if (!currentThemeProcess.running) currentThemeProcess.running = true
+        if (!currentBackgroundProcess.running) currentBackgroundProcess.running = true
+    }
+    function applyTheme(name) {
+        if (themeApplying || !name) return
+        pendingTheme = name
+        operationError = ""
+        themeApplying = true
+        applyThemeProcess.running = true
+    }
+    function nextThemeBackground() {
+        if (!nextBackgroundProcess.running) nextBackgroundProcess.running = true
     }
     function showImportOptions() { importPopup.open() }
     function showPlaybackSettings() { settingsPopup.open() }
@@ -247,13 +298,13 @@ Item {
                         Label { visible: panel.width > 620; text: "Wallpaper Pro"; font.pixelSize: 14; font.weight: Font.DemiBold; color: theme.colors.foreground }
                         Item { Layout.fillWidth: true }
                         ProField {
-                            visible: !root.compact
+                            visible: !root.compact && root.librarySection !== 7
                             Layout.preferredWidth: 230
                             placeholderText: "Search wallpapers"
                             text: root.searchQuery
                             onTextEdited: root.searchQuery = text
                         }
-                        ProButton { id: addButton; text: "+  Add wallpapers"; primary: true; onClicked: importPopup.open() }
+                        ProButton { id: addButton; visible: root.librarySection !== 7; text: "+  Add wallpapers"; primary: true; onClicked: importPopup.open() }
                         ProButton { text: "⚙"; quiet: true; onClicked: settingsPopup.open(); Accessible.name: "Wallpaper settings" }
                     }
                 }
@@ -286,11 +337,11 @@ Item {
                             }
                             ProButton {
                                 Layout.fillWidth: true
-                                text: "◉   Theme picker"
+                                text: "◉   Themes & appearance"
                                 navigation: true
-                                checked: themePicker.running
-                                onClicked: if (!themePicker.running) themePicker.running = true
-                                Accessible.name: "Open Omarchy theme picker"
+                                checked: root.librarySection === 7
+                                onClicked: { root.librarySection = 7; root.refreshThemeControls() }
+                                Accessible.name: "Open themes and appearance controls"
                             }
                             Item { Layout.fillHeight: true }
                             Label { text: "YOUR DISPLAYS"; color: theme.secondary; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.3; Layout.leftMargin: 12; Layout.bottomMargin: 10 }
@@ -328,6 +379,7 @@ Item {
                             anchors.margins: root.compact ? 20 : 28
                             spacing: 18
                             RowLayout {
+                                visible: root.librarySection !== 7
                                 Layout.fillWidth: true
                                 ColumnLayout {
                                     Layout.fillWidth: true
@@ -346,7 +398,7 @@ Item {
                                 }
                             }
                             RowLayout {
-                                visible: root.compact
+                                visible: root.compact && root.librarySection !== 7
                                 Layout.fillWidth: true
                                 ProCombo { Layout.fillWidth: true; model: root.sections; currentIndex: root.librarySection; onActivated: root.librarySection = currentIndex }
                                 ProField { Layout.fillWidth: true; placeholderText: "Search"; text: root.searchQuery
@@ -371,6 +423,7 @@ Item {
                                 }
                             }
                             RowLayout {
+                                visible: root.librarySection !== 7
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 spacing: 8
@@ -493,10 +546,97 @@ Item {
                                     }
                                 }
                             }
+                            Item {
+                                visible: root.librarySection === 7
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    spacing: 16
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 4
+                                            Label { text: "Themes & appearance"; color: theme.colors.foreground; font.pixelSize: 27; font.weight: Font.DemiBold }
+                                            Label { text: root.currentThemeName ? "Current theme · " + root.currentThemeName : "Choose an Omarchy theme"; color: theme.secondary; font.pixelSize: 12 }
+                                        }
+                                        ProButton { text: "Refresh list"; quiet: true; onClicked: root.refreshThemeControls() }
+                                    }
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        implicitHeight: 88
+                                        radius: 12
+                                        color: root.surface
+                                        border.color: root.divider
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: 14
+                                            spacing: 12
+                                            ColumnLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 4
+                                                Label { text: "Desktop background"; color: theme.colors.foreground; font.pixelSize: 13; font.weight: Font.DemiBold }
+                                                Label { text: root.currentBackground || "Loading current background…"; color: theme.secondary; font.pixelSize: 11; elide: Text.ElideMiddle; Layout.fillWidth: true }
+                                            }
+                                            ProButton { text: "Next background"; quiet: true; enabled: !nextBackgroundProcess.running; onClicked: root.nextThemeBackground() }
+                                        }
+                                    }
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        ProField { Layout.fillWidth: true; placeholderText: "Search installed themes"; text: root.themeSearch; onTextEdited: root.themeSearch = text }
+                                        Label { text: root.filteredThemes.length + " themes"; color: theme.secondary; font.pixelSize: 11 }
+                                    }
+                                    ScrollView {
+                                        Layout.fillWidth: true
+                                        Layout.fillHeight: true
+                                        clip: true
+                                        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                                        GridView {
+                                            id: themeGrid
+                                            model: root.filteredThemes
+                                            cellWidth: width / Math.max(1, Math.floor(width / 250))
+                                            cellHeight: 86
+                                            delegate: Item {
+                                                id: themeCard
+                                                required property string modelData
+                                                width: themeGrid.cellWidth - 12
+                                                height: themeGrid.cellHeight - 12
+                                                Rectangle {
+                                                    anchors.fill: parent
+                                                    radius: 12
+                                                    color: themeCard.modelData === root.currentThemeName ? Qt.tint(root.surface, Qt.rgba(0.04,0.52,1,0.16)) : root.surface
+                                                    border.width: themeCard.modelData === root.currentThemeName ? 2 : 1
+                                                    border.color: themeCard.modelData === root.currentThemeName ? "#0a84ff" : root.divider
+                                                    RowLayout {
+                                                        anchors.fill: parent
+                                                        anchors.margins: 13
+                                                        spacing: 9
+                                                        Rectangle {
+                                                            width: 34; height: 34; radius: 10
+                                                            color: themeCard.modelData === root.currentThemeName ? "#0a84ff" : theme.secondary
+                                                            Text { anchors.centerIn: parent; text: themeCard.modelData === root.currentThemeName ? "✓" : "◈"; color: "white"; font.pixelSize: 15 }
+                                                        }
+                                                        Label { Layout.fillWidth: true; text: themeCard.modelData; color: theme.colors.foreground; font.pixelSize: 12; font.weight: Font.Medium; elide: Text.ElideRight }
+                                                        ProButton {
+                                                            text: themeCard.modelData === root.currentThemeName ? "Current" : "Apply"
+                                                            quiet: themeCard.modelData === root.currentThemeName
+                                                            enabled: !root.themeApplying && themeCard.modelData !== root.currentThemeName
+                                                            onClicked: root.applyTheme(themeCard.modelData)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            Label { anchors.centerIn: parent; visible: root.filteredThemes.length === 0; text: root.themeSearch ? "No matching themes." : "Loading installed themes…"; color: theme.secondary }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
                 Rectangle {
+                    visible: root.librarySection !== 7
                     Layout.fillWidth: true
                     implicitHeight: root.compact ? 120 : 88
                     color: root.surface
