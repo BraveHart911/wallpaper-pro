@@ -167,37 +167,7 @@ Item {
                         anchors.leftMargin: 20
                         anchors.rightMargin: 20
                         spacing: 12
-                        Row {
-                            spacing: 8
-                            Repeater {
-                                model: ["#ff6059", "#ffbd2e", "#28c840"]
-                                delegate: Rectangle {
-                                    required property int index
-                                    required property string modelData
-                                    width: 13; height: 13; radius: 7
-                                    color: modelData
-                                    Accessible.role: Accessible.Button
-                                    Accessible.name: ["Close window", "Minimize window", "Toggle fullscreen"][index]
-                                    function activate() {
-                                        if (index === 0) root.close()
-                                        else if (index === 1) panel.minimized = true
-                                        else panel.fullscreen = !panel.fullscreen
-                                    }
-                                    Accessible.onPressAction: activate()
-                                    border.color: Qt.rgba(0,0,0,0.12)
-                                    Text { anchors.centerIn: parent; text: parent.index === 0 ? "×" : parent.index === 1 ? "−" : "+"; font.pixelSize: 12; color: "#57251f"; visible: trafficHover.containsMouse }
-                                    MouseArea {
-                                        id: trafficHover
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        onClicked: {
-                                            parent.activate()
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        Label { visible: panel.width > 620; text: "Wallpaper Pro"; font.pixelSize: 14; font.weight: Font.DemiBold; color: theme.colors.foreground; Layout.leftMargin: 12 }
+                        Label { visible: panel.width > 620; text: "Wallpaper Pro"; font.pixelSize: 14; font.weight: Font.DemiBold; color: theme.colors.foreground }
                         Item { Layout.fillWidth: true }
                         ProField {
                             visible: !root.compact

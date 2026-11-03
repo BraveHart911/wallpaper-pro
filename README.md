@@ -2,7 +2,7 @@
 
 An Omarchy shell plugin for a personal image and live wallpaper collection.
 
-**Early development · 0.5.0-alpha.1.** This is a working foundation, not a marketplace release yet.
+**Early development · 0.5.1-alpha.1.** This is a working foundation, not a marketplace release yet.
 
 ## Current features
 
@@ -25,7 +25,7 @@ Multi-monitor videos use separate players and a shared playback timeline, checki
 
 ## Interface
 
-A macOS-inspired desktop layout combines a library sidebar, a compact search/import toolbar, larger image previews, live-video badges, and a persistent Apply bar. The sidebar shows current monitor assignments. Narrow windows switch to a category selector and compact controls. The colored window buttons close, minimize, and toggle fullscreen through the normal window system.
+A macOS-inspired desktop layout combines a library sidebar, a compact search/import toolbar, larger image previews, live-video badges, and a persistent Apply bar. The sidebar shows current monitor assignments. Narrow windows switch to a category selector and compact controls. Window management uses the usual Hyprland shortcuts.
 
 Playback preferences and library removal are under the settings button. All file, folder, URL import, thumbnail, and monitor controls remain available. The manager continues to tile normally in Hyprland.
 
