@@ -2,7 +2,7 @@
 
 An Omarchy shell plugin for a personal image and live wallpaper collection.
 
-**Early development · 0.4.0-alpha.1.** This is a working foundation, not a marketplace release yet.
+**Early development · 0.5.0-alpha.1.** This is a working foundation, not a marketplace release yet.
 
 ## Current features
 
@@ -23,6 +23,12 @@ Multi-monitor videos use separate players and a shared playback timeline, checki
 
 ![Wallpaper Pro starter library with single-monitor and dual-panorama wallpapers](docs/images/library.png)
 
+## Interface
+
+A macOS-inspired desktop layout combines a library sidebar, a compact search/import toolbar, larger image previews, live-video badges, and a persistent Apply bar. The sidebar shows current monitor assignments. Narrow windows switch to a category selector and compact controls. The colored window buttons close, minimize, and toggle fullscreen through the normal window system.
+
+Playback preferences and library removal are under the settings button. All file, folder, URL import, thumbnail, and monitor controls remain available. The manager continues to tile normally in Hyprland.
+
 ## Requirements
 
 Omarchy with its Quickshell plugin system, Python 3, ffmpeg (including ffprobe), Qt Quick Controls, Qt Quick Dialogs, and Qt Multimedia with codecs for your videos. No swww, awww, or mpvpaper dependency. Codec availability varies by system.
@@ -37,7 +43,7 @@ omarchy plugin validate .
 
 Install this development version with `omarchy plugin add https://github.com/BraveHart911/wallpaper-pro` and enable `bravehart911.wallpaper-pro` from Omarchy's plugin settings. For a local test, copy this checkout into `~/.config/omarchy/plugins/bravehart911.wallpaper-pro`, rescan with `omarchy-shell shell rescanPlugins`, then enable with `omarchy plugin enable bravehart911.wallpaper-pro`. Do not copy over an existing plugin checkout.
 
-Open Wallpaper Pro from its bar icon. Add media, select a library card, select the display mode and monitor, then choose **Apply wallpaper**. Choose **Use Omarchy wallpaper** to hand the desktop back to the existing background provider. Applying an individual assignment switches to individual mode; other saved individual assignments remain available.
+Open Wallpaper Pro from its bar icon. Choose **+ Add wallpapers** to add files, a folder, or a web link. Select a library card, select the display mode and monitor, then choose **Apply wallpaper**. Choose **Use Omarchy wallpaper** to hand the desktop back to the existing background provider. Applying an individual assignment switches to individual mode; other saved individual assignments remain available.
 
 Wallpaper Pro adds click-through bottom-layer windows and does not rewrite Omarchy's theme, wallpaper, Hyprland startup, or other plugins' settings. Other live wallpaper plugins may compete for the same desktop layer; turn those off through their own controls while using Wallpaper Pro. Stock backgrounds remain underneath.
 
@@ -49,7 +55,7 @@ Wallpaper surfaces stay on the bottom layer, accept no keyboard focus, and have 
 
 The manager is a regular Wayland application window, so Hyprland controls its tiling, movement, resizing, workspace placement, and fullscreen state. Closing it with the window-manager shortcut keeps wallpapers running, and the bar icon reopens it. The gallery and controls adapt to narrower tiles.
 
-The manager uses Omarchy’s current palette; theme changes update its colors without overriding the wallpaper you selected. **Use Omarchy wallpaper** removes Wallpaper Pro’s wallpaper surfaces and video players, revealing the stock or custom background provider underneath. Omarchy theme and workspace wallpapers can continue updating underneath while Wallpaper Pro is active.
+The manager uses Omarchy’s background and text colors with a blue action accent; theme changes update its colors without overriding the wallpaper you selected. **Use Omarchy wallpaper** removes Wallpaper Pro’s wallpaper surfaces and video players, revealing the stock or custom background provider underneath. Omarchy theme and workspace wallpapers can continue updating underneath while Wallpaper Pro is active.
 
 Video pauses on the monitor occupied by a fullscreen application. Other monitors continue playing, and playback resumes when fullscreen ends. `fullscreen off` disables this behavior. Connector assignments survive unplug/replug; panoramic geometry uses logical output coordinates and handles empty layouts safely. Mixed scale, portrait, and negative positions are covered by geometry tests; physical hotplug and display sleep testing remain on the release checklist.
 
@@ -57,7 +63,7 @@ The manager warns about potentially competing full-screen wallpaper surfaces. It
 
 ## Add a folder
 
-Choose **Add folder** and select your wallpaper collection. Wallpaper Pro scans that folder and all nested subfolders, copies supported media into its managed library, and generates a thumbnail for each added image or video. The window shows file-by-file progress and a final count of added files, duplicates, failures, and unsupported files.
+Choose **+ Add wallpapers → Add folder & subfolders…** and select your wallpaper collection. Wallpaper Pro scans that folder and all nested subfolders, copies supported media into its managed library, and generates a thumbnail for each added image or video. The window shows file-by-file progress and a final count of added files, duplicates, failures, and unsupported files.
 
 A damaged or unreadable file does not stop the remaining imports. Completed imports are saved as the batch runs. Originals and active wallpaper assignments remain unchanged. Duplicate detection uses file contents, so adding the folder again imports new media without creating duplicate library entries.
 

@@ -5,6 +5,7 @@ import QtQuick.Layouts
 import QtQuick.Dialogs
 import Quickshell
 import Quickshell.Io
+import "ui"
 
 Item {
     id: root
@@ -26,7 +27,18 @@ Item {
     WallpaperService { id: rendererService }
     property var manifest
     property bool opened: false
-    readonly property bool compact: panel.width < 850
+    property string appWindowTitle: "Wallpaper Pro"
+    readonly property bool compact: panel.width < 900
+    readonly property bool dark: (Qt.color(theme.colors.background).r + Qt.color(theme.colors.background).g + Qt.color(theme.colors.background).b) < 1.5
+    readonly property color surface: Qt.tint(theme.colors.background, Qt.rgba(0.5, 0.5, 0.5, 0.07))
+    readonly property color divider: Qt.rgba(0.5, 0.5, 0.5, 0.15)
+    readonly property var sections: ["All wallpapers", "Live wallpapers", "Single monitor", "Dual panorama", "My imports"]
+    function displayName(media) {
+        if (!media) return "Choose a wallpaper"
+        const title = String(media.name || "").replace(/\.(jpg|jpeg|png|webp|bmp|avif|mp4|webm|mkv|mov|m4v)$/i, "").replace(/[._ -]+\d{3,5}[x×]\d{3,5}$/i, "").replace(/[-_]+/g, " ")
+        return title.charAt(0).toUpperCase() + title.slice(1)
+    }
+    function mediaSubtitle(media) { return media ? (media.layout === "panoramic" ? "Dual panorama" : "Single monitor") + (media.width ? " · " + media.width + " × " + media.height : "") : "Select a preview from your collection" }
     property var state: ({library: []})
     property string selected: ""
     property int librarySection: 0
@@ -59,15 +71,18 @@ Item {
         if (!desktopCheck.running) desktopCheck.running = true
         run(["status"])
     }
+    function showImportOptions() { importPopup.open() }
+    function showPlaybackSettings() { settingsPopup.open() }
     function close() {
         if (!opened) return
         opened = false
         if (shell && typeof shell.hide === "function") shell.hide("bravehart911.wallpaper-pro")
     }
     function assignment(name) {
+        if (!state.enabled) return "Omarchy wallpaper"
         const id = state.mode === "individual" ? (state.assignments || {})[name] : state.default
         const media = (state.library || []).find(item => item.id === id)
-        return media ? media.name : "Desktop default"
+        return media ? displayName(media) : "Omarchy wallpaper"
     }
     function run(args) {
         if (worker.running) return
@@ -114,188 +129,368 @@ Item {
     }
     FloatingWindow {
         id: panel
-        title: "Wallpaper Pro"
+        title: root.appWindowTitle
         minimumSize: Qt.size(540, 560)
-        onClosed: root.close()
-        visible: root.opened
-        implicitWidth: 1040
+        implicitWidth: 1160
         implicitHeight: 800
+        visible: root.opened
         color: theme.colors.background
+        onClosed: root.close()
         Pane {
+            id: frame
             anchors.fill: parent
             padding: 0
             background: null
+            font.family: "Inter"
             palette.window: theme.colors.background
             palette.windowText: theme.colors.foreground
-            palette.base: theme.colors.background
             palette.text: theme.colors.foreground
-            palette.button: theme.colors.selection
+            palette.base: theme.colors.background
+            palette.button: root.surface
             palette.buttonText: theme.colors.foreground
-            palette.highlight: theme.colors.accent
-            palette.highlightedText: theme.colors.background
+            palette.highlight: root.dark ? "#4da3ff" : "#0065cc"
+            palette.highlightedText: "white"
             palette.placeholderText: theme.secondary
+            focus: true
+            Keys.onEscapePressed: root.close()
+
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: root.compact ? 16 : 28
-                spacing: 16
-                focus: true
-                Keys.onEscapePressed: root.close()
-                RowLayout {
+                spacing: 0
+                Rectangle {
                     Layout.fillWidth: true
-                    ColumnLayout {
-                        Label { text: "WALLPAPER PRO"; color: theme.colors.foreground; font.pixelSize: root.compact ? 22 : 28; font.bold: true }
-                        Label { visible: !root.compact; text: "Your collection. Every screen."; color: theme.secondary }
-                    }
-                    Item { Layout.fillWidth: true }
-                    Button { text: root.compact ? "Desktop default" : "Use Omarchy wallpaper"; enabled: !worker.running; onClicked: root.run(["off"]) }
-                    Button { text: "Close"; onClicked: root.close() }
-                }
-                RowLayout {
-                    Button { text: "Add local file"; enabled: !worker.running; onClicked: picker.open() }
-                    Button { text: "Add folder"; enabled: !worker.running; onClicked: folderPicker.open() }
-                    TextField { id: link; Layout.fillWidth: true; placeholderText: "Paste a direct image or video URL"; onAccepted: if (text.trim()) root.run(["import", text.trim()]) }
-                    Button { text: "Import link"; enabled: !worker.running && link.text.trim() !== ""; onClicked: root.run(["import", link.text.trim()]) }
-                }
-                Label { text: root.message; color: theme.colors.foreground; Layout.fillWidth: true; wrapMode: Text.Wrap }
-                Label {
-                    visible: root.folderErrors !== ""
-                    text: root.folderErrors
-                    color: theme.colors.red
-                    Layout.fillWidth: true
-                    wrapMode: Text.Wrap
-                    maximumLineCount: 3
-                    elide: Text.ElideRight
-                }
-                Label {
-                    text: "Playback issue: " + root.playbackErrors
-                    visible: root.playbackErrors !== ""
-                    color: theme.colors.red
-                    Layout.fillWidth: true
-                    wrapMode: Text.Wrap
-                }
-                Label {
-                    visible: root.compatibilityWarning !== ""
-                    text: root.compatibilityWarning
-                    color: theme.colors.red
-                    Layout.fillWidth: true
-                    wrapMode: Text.Wrap
-                }
-                RowLayout {
-                    Repeater {
-                        model: Quickshell.screens
-                        delegate: Rectangle {
-                            required property var modelData
-                            Layout.fillWidth: true
-                            implicitHeight: 62
-                            radius: 8
-                            color: theme.colors.selection
-                            ColumnLayout {
-                                anchors.fill: parent
-                                anchors.margins: 10
-                                Label { text: parent.parent.modelData.name; color: theme.colors.accent; font.bold: true }
-                                Label { text: root.assignment(parent.parent.modelData.name); color: theme.secondary; elide: Text.ElideRight; Layout.fillWidth: true }
+                    implicitHeight: 66
+                    color: root.surface
+                    Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: root.divider }
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 20
+                        anchors.rightMargin: 20
+                        spacing: 12
+                        Row {
+                            spacing: 8
+                            Repeater {
+                                model: ["#ff6059", "#ffbd2e", "#28c840"]
+                                delegate: Rectangle {
+                                    required property int index
+                                    required property string modelData
+                                    width: 13; height: 13; radius: 7
+                                    color: modelData
+                                    Accessible.role: Accessible.Button
+                                    Accessible.name: ["Close window", "Minimize window", "Toggle fullscreen"][index]
+                                    function activate() {
+                                        if (index === 0) root.close()
+                                        else if (index === 1) panel.minimized = true
+                                        else panel.fullscreen = !panel.fullscreen
+                                    }
+                                    Accessible.onPressAction: activate()
+                                    border.color: Qt.rgba(0,0,0,0.12)
+                                    Text { anchors.centerIn: parent; text: parent.index === 0 ? "×" : parent.index === 1 ? "−" : "+"; font.pixelSize: 12; color: "#57251f"; visible: trafficHover.containsMouse }
+                                    MouseArea {
+                                        id: trafficHover
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        onClicked: {
+                                            parent.activate()
+                                        }
+                                    }
+                                }
                             }
                         }
+                        Label { visible: panel.width > 620; text: "Wallpaper Pro"; font.pixelSize: 14; font.weight: Font.DemiBold; color: theme.colors.foreground; Layout.leftMargin: 12 }
+                        Item { Layout.fillWidth: true }
+                        ProField {
+                            visible: !root.compact
+                            Layout.preferredWidth: 230
+                            placeholderText: "Search wallpapers"
+                            text: root.searchQuery
+                            onTextEdited: root.searchQuery = text
+                        }
+                        ProButton { id: addButton; text: "+  Add wallpapers"; primary: true; onClicked: importPopup.open() }
+                        ProButton { text: "⚙"; quiet: true; onClicked: settingsPopup.open(); Accessible.name: "Wallpaper settings" }
                     }
                 }
                 RowLayout {
-                    Layout.fillWidth: true
-                    Repeater {
-                        model: ["All wallpapers", "Videos", "Single monitor", "Dual panorama", "My imports"]
-                        delegate: Button {
-                            required property int index
-                            required property string modelData
-                            visible: !root.compact
-                            text: modelData
-                            checkable: true
-                            checked: root.librarySection === index
-                            onClicked: root.librarySection = index
-                        }
-                    }
-                    Item { Layout.fillWidth: true }
-                    ComboBox {
-                        visible: root.compact
-                        Layout.fillWidth: true
-                        model: ["All wallpapers", "Videos", "Single monitor", "Dual panorama", "My imports"]
-                        currentIndex: root.librarySection
-                        onActivated: root.librarySection = currentIndex
-                    }
-                    TextField { Layout.preferredWidth: 180; placeholderText: "Search wallpapers"; onTextChanged: root.searchQuery = text }
-                }
-                Label {
-                    text: root.filteredLibrary.length + " wallpapers · Select a card, then apply to your screen or both monitors."
-                    color: theme.secondary
-                }
-                Label {
-                    visible: !root.filteredLibrary.length
-                    text: "No matching wallpapers. Add a local file or direct web link, or try another category."
-                    color: theme.secondary
-                    Layout.fillWidth: true
-                    wrapMode: Text.Wrap
-                }
-                ScrollView {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    clip: true
-                    GridView {
-                        id: gallery
-                        model: root.filteredLibrary
-                        cellWidth: width / Math.max(1, Math.floor(width / 240))
-                        cellHeight: 192
-                        delegate: Item {
-                            id: card
-                            required property var modelData
-                            width: gallery.cellWidth - 12
-                            height: gallery.cellHeight - 12
-                            Rectangle {
-                                anchors.fill: parent
-                                radius: 10
-                                color: theme.colors.selection
-                                border.width: root.selected === card.modelData.id ? 2 : 1
-                                border.color: root.selected === card.modelData.id ? theme.colors.accent : theme.colors.selection
-                                Image { id: preview; anchors { top: parent.top; left: parent.left; right: parent.right; margins: 8 } height: 100; source: card.modelData.thumbnailUrl || (card.modelData.kind === "image" ? card.modelData.url : ""); fillMode: Image.PreserveAspectFit; asynchronous: true }
-                                Label { anchors.centerIn: parent; visible: preview.source.toString() === "" || preview.status === Image.Error; text: "Preview unavailable"; color: theme.colors.accent }
-                                Label { anchors { bottom: parent.bottom; left: parent.left; right: parent.right; margins: 12; bottomMargin: 30 } text: card.modelData.name; elide: Text.ElideRight; color: theme.colors.foreground }
-                                Label {
-                                    anchors { bottom: parent.bottom; left: parent.left; right: parent.right; margins: 12 }
-                                    text: (card.modelData.kind === "video" ? "VIDEO · " : "") + (card.modelData.layout === "panoramic" ? "DUAL PANORAMA" : "SINGLE MONITOR") + (card.modelData.width ? " · " + card.modelData.width + " × " + card.modelData.height : "")
-                                    color: theme.colors.accent
-                                    font.pixelSize: 10
-                                    elide: Text.ElideRight
+                    spacing: 0
+                    Rectangle {
+                        visible: !root.compact
+                        Layout.preferredWidth: 218
+                        Layout.fillHeight: true
+                        color: root.surface
+                        Rectangle { anchors.right: parent.right; width: 1; height: parent.height; color: root.divider }
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: 16
+                            spacing: 4
+                            Label { text: "LIBRARY"; color: theme.secondary; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.4; Layout.topMargin: 12; Layout.bottomMargin: 10; Layout.leftMargin: 12 }
+                            Repeater {
+                                model: root.sections
+                                delegate: ProButton {
+                                    required property int index
+                                    required property string modelData
+                                    Layout.fillWidth: true
+                                    text: ["▦   ", "▶   ", "▣   ", "↔   ", "↓   "][index] + modelData
+                                    navigation: true
+                                    checked: root.librarySection === index
+                                    onClicked: root.librarySection = index
                                 }
-                                MouseArea { anchors.fill: parent; onClicked: root.selectMedia(card.modelData) }
+                            }
+                            Item { Layout.fillHeight: true }
+                            Label { text: "YOUR DISPLAYS"; color: theme.secondary; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.3; Layout.leftMargin: 12; Layout.bottomMargin: 10 }
+                            Repeater {
+                                model: Quickshell.screens
+                                delegate: Rectangle {
+                                    id: displayCard
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    implicitHeight: 80
+                                    radius: 10
+                                    color: Qt.rgba(0.5,0.5,0.5,0.07)
+                                    ColumnLayout {
+                                        anchors.fill: parent
+                                        anchors.margins: 12
+                                        spacing: 5
+                                        RowLayout {
+                                            Rectangle { width: 18; height: 12; radius: 2; color: "transparent"; border.color: theme.secondary; border.width: 1 }
+                                            Label { text: displayCard.modelData.name; font.pixelSize: 12; font.weight: Font.Medium; color: theme.colors.foreground }
+                                            Item { Layout.fillWidth: true }
+                                            Rectangle { width: 5; height: 5; radius: 3; color: "#30c783" }
+                                        }
+                                        Label { text: root.assignment(displayCard.modelData.name); font.pixelSize: 11; color: theme.secondary; elide: Text.ElideRight; Layout.fillWidth: true }
+                                    }
+                                }
+                            }
+                            ProButton { text: "Use Omarchy wallpaper"; quiet: true; Layout.fillWidth: true; Layout.topMargin: 14; enabled: !worker.running; onClicked: root.run(["off"]) }
+                        }
+                    }
+                    Item {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: root.compact ? 20 : 28
+                            spacing: 18
+                            RowLayout {
+                                Layout.fillWidth: true
+                                ColumnLayout {
+                                    spacing: 7
+                                    Label { text: root.librarySection === 0 ? "Your collection" : root.sections[root.librarySection]; font.pixelSize: 27; font.weight: Font.DemiBold; color: theme.colors.foreground }
+                                    Label { text: root.filteredLibrary.length + " wallpapers. A fresh perspective for every screen."; font.pixelSize: 12; color: theme.secondary }
+                                }
+                                Item { Layout.fillWidth: true }
+                                Rectangle {
+                                    visible: !root.compact
+                                    implicitWidth: 94; implicitHeight: 28; radius: 14
+                                    color: Qt.rgba(0.18,0.78,0.51,0.1)
+                                    Label { anchors.centerIn: parent; text: "●  On device"; font.pixelSize: 10; color: root.dark ? "#74d7a6" : "#237d53" }
+                                }
+                            }
+                            RowLayout {
+                                visible: root.compact
+                                Layout.fillWidth: true
+                                ProCombo { Layout.fillWidth: true; model: root.sections; currentIndex: root.librarySection; onActivated: root.librarySection = currentIndex }
+                                ProField { Layout.fillWidth: true; placeholderText: "Search"; text: root.searchQuery
+                            onTextEdited: root.searchQuery = text }
+                            }
+                            Rectangle {
+                                visible: worker.running || root.folderErrors !== "" || root.playbackErrors !== "" || root.compatibilityWarning !== "" || root.pendingCommand === "import-folder"
+                                Layout.fillWidth: true
+                                implicitHeight: notice.implicitHeight + 24
+                                radius: 10
+                                color: Qt.rgba(0.04,0.52,1,0.08)
+                                Label {
+                                    id: notice
+                                    anchors.fill: parent
+                                    anchors.margins: 12
+                                    text: root.folderErrors || root.playbackErrors || root.compatibilityWarning || root.message
+                                    color: root.folderErrors || root.playbackErrors ? theme.colors.red : theme.secondary
+                                    wrapMode: Text.Wrap
+                                    maximumLineCount: 3
+                                    elide: Text.ElideRight
+                                    font.pixelSize: 12
+                                }
+                            }
+                            ScrollView {
+                                id: collectionScroll
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                clip: true
+                                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                                GridView {
+                                    id: gallery
+                                    model: root.filteredLibrary
+                                    keyNavigationEnabled: true
+                                    Keys.onReturnPressed: if (currentItem) root.selectMedia(currentItem.modelData)
+                                    Keys.onSpacePressed: if (currentItem) root.selectMedia(currentItem.modelData)
+                                    cellWidth: width / Math.max(1, Math.floor(width / 240))
+                                    cellHeight: (cellWidth - 18) * 9 / 16 + 74
+                                    delegate: Item {
+                                        id: card
+                                        required property var modelData
+                                        required property int index
+                                        Accessible.role: Accessible.Button
+                                        Accessible.name: root.displayName(modelData) + ", " + root.mediaSubtitle(modelData)
+                                        Accessible.selected: root.selected === modelData.id
+                                        Accessible.onPressAction: root.selectMedia(modelData)
+                                        width: gallery.cellWidth - 18
+                                        height: gallery.cellHeight - 18
+                                        Rectangle {
+                                            anchors.fill: parent
+                                            anchors.topMargin: 2
+                                            anchors.bottomMargin: -2
+                                            radius: 13
+                                            color: Qt.rgba(0,0,0,root.dark ? 0.22 : 0.05)
+                                        }
+                                        Rectangle {
+                                            anchors.fill: parent
+                                            radius: 13
+                                            color: root.selected === card.modelData.id ? Qt.tint(theme.colors.background, Qt.rgba(0.04,0.52,1,0.12)) : root.surface
+                                            border.width: root.selected === card.modelData.id ? 2 : 1
+                                            border.color: root.selected === card.modelData.id ? "#0a84ff" : root.divider
+                                            Rectangle {
+                                                id: picture
+                                                anchors.top: parent.top
+                                                anchors.left: parent.left
+                                                anchors.right: parent.right
+                                                anchors.margins: 7
+                                                height: width * 9 / 16
+                                                color: Qt.rgba(0.5,0.5,0.5,0.08)
+                                                radius: 8
+                                                clip: true
+                                                Image {
+                                                    id: preview
+                                                    anchors.fill: parent
+                                                    source: card.modelData.thumbnailUrl || (card.modelData.kind === "image" ? card.modelData.url : "")
+                                                    fillMode: Image.PreserveAspectCrop
+                                                    asynchronous: true
+                                                    sourceSize.width: 600
+                                                }
+                                                Label { anchors.centerIn: parent; visible: preview.source.toString() === "" || preview.status === Image.Error; text: "Preview unavailable"; color: theme.secondary; font.pixelSize: 12 }
+                                                Rectangle {
+                                                    visible: card.modelData.kind === "video"
+                                                    x: 8; y: 8; width: 49; height: 22; radius: 6
+                                                    color: "#a0101318"
+                                                    Text { anchors.centerIn: parent; text: "▶ LIVE"; color: "white"; font.pixelSize: 9; font.weight: Font.DemiBold }
+                                                }
+                                                Rectangle {
+                                                    visible: root.selected === card.modelData.id
+                                                    anchors { right: parent.right; top: parent.top; margins: 8 }
+                                                    width: 22; height: 22; radius: 11
+                                                    color: "#0a84ff"
+                                                    Text { anchors.centerIn: parent; text: "✓"; color: "white"; font.pixelSize: 13 }
+                                                }
+                                            }
+                                            ColumnLayout {
+                                                anchors { left: parent.left; right: parent.right; top: picture.bottom; margins: 10; topMargin: 9 }
+                                                spacing: 3
+                                                Label { text: root.displayName(card.modelData); font.pixelSize: 12; font.weight: Font.Medium; color: theme.colors.foreground; elide: Text.ElideRight; Layout.fillWidth: true }
+                                                Label { text: root.mediaSubtitle(card.modelData); font.pixelSize: 10; color: theme.secondary; elide: Text.ElideRight; Layout.fillWidth: true }
+                                            }
+                                            MouseArea {
+                                                id: cardMouse
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: { gallery.currentIndex = card.index; gallery.forceActiveFocus(); root.selectMedia(card.modelData) }
+                                                onDoubleClicked: if (!worker.running) root.run(["apply", card.modelData.id, "--mode", card.modelData.layout === "panoramic" ? "span" : "individual", "--monitor", monitor.currentText])
+                                            }
+                                            ToolTip.visible: cardMouse.containsMouse
+                                            ToolTip.delay: 700
+                                            ToolTip.text: card.modelData.name
+                                        }
+                                    }
+                                    Label { anchors.centerIn: parent; visible: !root.filteredLibrary.length; text: "No wallpapers here yet.\nAdd a file, folder, or web link to get started."; color: theme.secondary; horizontalAlignment: Text.AlignHCenter; lineHeight: 1.6; font.pixelSize: 13 }
+                                }
                             }
                         }
                     }
                 }
-                RowLayout {
-                    ComboBox { id: mode; implicitWidth: root.compact ? 180 : 210; model: ["Individual monitor", "All monitors", "Panoramic (experimental)"] }
-                    ComboBox { id: monitor; model: Quickshell.screens.map(s => s.name); enabled: mode.currentIndex === 0; Layout.fillWidth: true }
-                    Button {
-                        text: "Apply wallpaper"
-                        enabled: root.selected !== "" && !worker.running
-                        onClicked: root.run(["apply", root.selected, "--mode", ["individual", "all", "span"][mode.currentIndex], "--monitor", monitor.currentText])
-                    }
-                }
-                Flow {
+                Rectangle {
                     Layout.fillWidth: true
-                    spacing: 8
-                    CheckBox {
-                        text: "Pause video on battery"
-                        checked: root.state.pauseOnBattery !== false
-                        enabled: !worker.running
-                        onClicked: root.run(["battery", checked ? "on" : "off"])
+                    implicitHeight: root.compact ? 120 : 88
+                    color: root.surface
+                    Rectangle { width: parent.width; height: 1; color: root.divider }
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: root.compact ? 16 : 20
+                        spacing: 10
+                        Label { visible: root.compact; text: root.displayName(root.selectedMedia); color: theme.colors.foreground; font.pixelSize: 13; font.weight: Font.Medium; elide: Text.ElideRight; Layout.fillWidth: true }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 12
+                            Image { visible: !root.compact; Layout.preferredWidth: 68; Layout.preferredHeight: 42; source: root.selectedMedia ? root.selectedMedia.thumbnailUrl || (root.selectedMedia.kind === "image" ? root.selectedMedia.url : "") : ""; fillMode: Image.PreserveAspectCrop; asynchronous: true }
+                            ColumnLayout {
+                                visible: !root.compact
+                                Layout.fillWidth: true
+                                spacing: 5
+                                Label { text: root.displayName(root.selectedMedia); color: theme.colors.foreground; font.pixelSize: 13; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
+                                Label { text: root.mediaSubtitle(root.selectedMedia); color: theme.secondary; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
+                            }
+                            ProCombo { id: mode; Layout.preferredWidth: root.compact ? 162 : 172; model: ["Individual monitor", "All monitors", "Panoramic (experimental)"] }
+                            ProCombo { id: monitor; Layout.fillWidth: root.compact; Layout.preferredWidth: 130; model: Quickshell.screens.map(s => s.name); enabled: mode.currentIndex === 0 }
+                            ProButton { text: root.compact ? "Apply" : "Apply wallpaper"; primary: true; enabled: root.selectedMedia !== null && !worker.running; onClicked: root.run(["apply", root.selected, "--mode", ["individual", "all", "span"][mode.currentIndex], "--monitor", monitor.currentText]) }
+                        }
                     }
-                    CheckBox {
-                        text: "Pause in fullscreen"
-                        checked: root.state.pauseOnFullscreen !== false
-                        enabled: !worker.running
-                        onClicked: root.run(["fullscreen", checked ? "on" : "off"])
-                    }
-                    Button { text: "Clear monitor"; enabled: mode.currentIndex === 0 && !worker.running; onClicked: root.run(["unassign", monitor.currentText]) }
-                    Button { text: "Remove selected"; enabled: root.selectedMedia !== null && !root.selectedMedia.bundled && !worker.running; onClicked: root.run(["remove", root.selected]) }
                 }
-                Label { text: "Videos loop silently. Panoramic mode spans images or video. Video timing is drift-corrected, not frame locked. Use Omarchy wallpaper restores the wallpaper underneath."; Layout.fillWidth: true; wrapMode: Text.Wrap; color: theme.secondary }
+            }
+
+            Popup {
+                id: importPopup
+                x: frame.width - width - 20
+                y: 58
+                width: 228
+                padding: 8
+                closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                background: Rectangle { color: theme.colors.background; radius: 13; border.color: root.divider }
+                ColumnLayout {
+                    width: parent.width
+                    spacing: 3
+                    ProButton { text: "Add a file…"; quiet: true; navigation: true; Layout.fillWidth: true; enabled: !worker.running; onClicked: { importPopup.close(); picker.open() } }
+                    ProButton { text: "Add folder & subfolders…"; quiet: true; navigation: true; Layout.fillWidth: true; enabled: !worker.running; onClicked: { importPopup.close(); folderPicker.open() } }
+                    ProButton { text: "Add from web link…"; quiet: true; navigation: true; Layout.fillWidth: true; enabled: !worker.running; onClicked: { importPopup.close(); urlDialog.open() } }
+                }
+            }
+            Dialog {
+                id: urlDialog
+                anchors.centerIn: parent
+                width: Math.min(440, frame.width - 40)
+                modal: true
+                title: "Add from web link"
+                background: Rectangle { color: theme.colors.background; radius: 15; border.color: root.divider }
+                ColumnLayout {
+                    width: parent.width
+                    spacing: 16
+                    Label { text: "Paste a direct image or video URL."; color: theme.secondary; font.pixelSize: 13 }
+                    ProField { id: link; Layout.fillWidth: true; placeholderText: "https://…"; onAccepted: if (text.trim()) { root.run(["import", text.trim()]); urlDialog.close() } }
+                    RowLayout {
+                        Item { Layout.fillWidth: true }
+                        ProButton { text: "Cancel"; quiet: true; onClicked: urlDialog.close() }
+                        ProButton { text: "Import wallpaper"; primary: true; enabled: !worker.running && link.text.trim() !== ""; onClicked: { root.run(["import", link.text.trim()]); urlDialog.close() } }
+                    }
+                }
+            }
+            Popup {
+                id: settingsPopup
+                x: Math.max(16, frame.width - width - 20)
+                y: 58
+                width: Math.min(330, frame.width - 32)
+                padding: 20
+                closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                background: Rectangle { color: theme.colors.background; radius: 14; border.color: root.divider }
+                ColumnLayout {
+                    width: parent.width
+                    spacing: 8
+                    Label { text: "Playback & library"; color: theme.colors.foreground; font.pixelSize: 16; font.weight: Font.DemiBold; Layout.bottomMargin: 8 }
+                    ProCheck { text: "Pause video on battery"; checked: root.state.pauseOnBattery !== false; enabled: !worker.running; onClicked: root.run(["battery", checked ? "on" : "off"]) }
+                    ProCheck { text: "Pause behind fullscreen apps"; checked: root.state.pauseOnFullscreen !== false; enabled: !worker.running; onClicked: root.run(["fullscreen", checked ? "on" : "off"]) }
+                    Label { text: "Videos loop silently. Panoramic video uses drift correction and is not frame locked."; color: theme.secondary; font.pixelSize: 11; wrapMode: Text.Wrap; Layout.fillWidth: true; Layout.bottomMargin: 10 }
+                    Rectangle { Layout.fillWidth: true; height: 1; color: root.divider }
+                    ProButton { text: "Use Omarchy wallpaper"; quiet: true; Layout.fillWidth: true; enabled: !worker.running; onClicked: root.run(["off"]) }
+                    ProButton { text: "Clear this monitor"; quiet: true; Layout.fillWidth: true; enabled: mode.currentIndex === 0 && !worker.running; onClicked: root.run(["unassign", monitor.currentText]) }
+                    ProButton { text: "Remove selected wallpaper"; quiet: true; Layout.fillWidth: true; enabled: root.selectedMedia !== null && !root.selectedMedia.bundled && !worker.running; onClicked: root.run(["remove", root.selected]) }
+                }
             }
         }
     }
