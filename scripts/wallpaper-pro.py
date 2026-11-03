@@ -5,9 +5,12 @@ import fcntl
 import hashlib
 import json
 import os
+import shutil
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -57,6 +60,21 @@ class WebRedirects(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
+def validate_media(path):
+    if not shutil.which('ffprobe'):
+        raise ValueError('Install ffmpeg (ffprobe) to validate wallpaper media')
+    try:
+        result = subprocess.run(
+            ['ffprobe', '-v', 'error', '-protocol_whitelist', 'file,pipe', '-select_streams', 'v:0',
+             '-show_entries', 'stream=width,height', '-of', 'json', str(path)],
+            capture_output=True, text=True, timeout=20, check=False)
+        streams = json.loads(result.stdout or '{}').get('streams', [])
+        if result.returncode or not streams or streams[0].get('width', 0) <= 0 or streams[0].get('height', 0) <= 0:
+            raise ValueError('This file has no readable image or video stream')
+    except subprocess.TimeoutExpired as error:
+        raise ValueError('Media inspection timed out') from error
+
+
 def import_media(source, data):
     """Copy media into managed storage; remote sources must be direct media URLs."""
     library = data / 'library'
@@ -65,6 +83,8 @@ def import_media(source, data):
     remote = parsed.scheme in ('https', 'http')
     if parsed.scheme and not remote and parsed.scheme != 'file':
         raise ValueError('Use a local file or a direct HTTP(S) media link')
+    if parsed.scheme == 'file' and parsed.netloc not in ('', 'localhost'):
+        raise ValueError('File URLs must refer to this computer')
     source_path = Path(urllib.request.url2pathname(parsed.path)) if parsed.scheme == 'file' else Path(source).expanduser()
     name = Path(urllib.parse.unquote(parsed.path)).name if remote else source_path.name
     suffix = Path(name).suffix.lower()
@@ -76,7 +96,11 @@ def import_media(source, data):
             temporary = Path(target.name)
             if remote:
                 request = urllib.request.Request(source, headers={'User-Agent': 'Wallpaper-Pro/0.1'})
-                stream = urllib.request.build_opener(WebRedirects()).open(request, timeout=30)
+                try:
+                    stream = urllib.request.build_opener(WebRedirects()).open(request, timeout=30)
+                except urllib.error.HTTPError as error:
+                    error.close()
+                    raise ValueError('Download failed: HTTP ' + str(error.code)) from error
             else:
                 stream = source_path.open('rb')
             digest = hashlib.sha256()
@@ -90,6 +114,7 @@ def import_media(source, data):
                     target.write(chunk)
             if not size:
                 raise ValueError('Media is empty')
+        validate_media(temporary)
         identity = digest.hexdigest()
         destination = library / (identity + suffix)
         os.replace(temporary, destination)
@@ -110,16 +135,20 @@ def update(state, args, data):
         media = next((item for item in state['library'] if item['id'] == args.id), None)
         if media is None:
             raise ValueError('Select an imported wallpaper first')
-        if args.mode == 'span' and media['kind'] != 'image':
-            raise ValueError('Panoramic spanning currently supports images. Use All monitors for video.')
+        if not Path(media['path']).is_file():
+            raise ValueError('This library file is missing. Import it again before applying.')
+        if args.mode == 'individual' and not args.monitor:
+            raise ValueError('Select a monitor')
         state['mode'] = args.mode
         if args.mode == 'individual':
-            if not args.monitor:
-                raise ValueError('Select a monitor')
             state['assignments'][args.monitor] = args.id
         else:
             state['default'] = args.id
         state['enabled'] = True
+    elif args.command == 'unassign':
+        state['assignments'].pop(args.monitor, None)
+    elif args.command == 'battery':
+        state['pauseOnBattery'] = args.value == 'on'
     elif args.command == 'off':
         state['enabled'] = False
     elif args.command == 'remove':
@@ -135,6 +164,10 @@ def main():
     commands = parser.add_subparsers(dest='command', required=True)
     commands.add_parser('status')
     commands.add_parser('off')
+    unassign = commands.add_parser('unassign')
+    unassign.add_argument('monitor')
+    battery = commands.add_parser('battery')
+    battery.add_argument('value', choices=['on', 'off'])
     imp = commands.add_parser('import')
     imp.add_argument('source')
     apply = commands.add_parser('apply')

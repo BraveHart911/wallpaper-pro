@@ -2,7 +2,7 @@
 
 An Omarchy shell plugin for a personal image and live wallpaper collection.
 
-**Early development · 0.1.0.** This is a working foundation, not a marketplace release yet.
+**Early development · 0.2.0-alpha.1.** This is a working foundation, not a marketplace release yet.
 
 ## Current features
 
@@ -10,16 +10,18 @@ An Omarchy shell plugin for a personal image and live wallpaper collection.
 - Download direct HTTP/HTTPS media links into a private local collection.
 - Assign a different image or looping, muted video to each monitor.
 - Repeat one image or video on all connected monitors.
-- Span one panoramic image across the desktop's logical monitor layout.
+- Span a panoramic image or video across the desktop's logical monitor layout.
 - Pause video on battery power.
 - Turn off Wallpaper Pro to reveal the wallpaper underneath.
 - Keep library and assignments across shell restarts; reconnecting displays use their connector assignments.
 
-Videos repeated on multiple monitors use separate players and are **not frame synchronized**. Synchronized panoramic video is planned. Web imports require a direct media URL with a supported file extension; YouTube, Steam Workshop, Wallpaper Engine projects, HTML pages, and provider galleries are not supported.
+Multi-monitor videos use separate players and a shared playback timeline, checking for drift every 500 ms and seeking when drift exceeds 150 ms. Panoramic video is **experimental and not frame locked**; monitor seams may show timing differences. Web imports require a direct media URL with a supported file extension; YouTube, Steam Workshop, Wallpaper Engine projects, HTML pages, and provider galleries are not supported.
+
+![Wallpaper Pro manager in a two-monitor playback smoke test](docs/images/manager.png)
 
 ## Requirements
 
-Omarchy with its Quickshell plugin system, Python 3, Qt Quick Controls, Qt Quick Dialogs, and Qt Multimedia with codecs for your videos. No swww, awww, or mpvpaper dependency. Codec availability varies by system.
+Omarchy with its Quickshell plugin system, Python 3, ffmpeg (including ffprobe), Qt Quick Controls, Qt Quick Dialogs, and Qt Multimedia with codecs for your videos. No swww, awww, or mpvpaper dependency. Codec availability varies by system.
 
 ## Development install
 
@@ -47,7 +49,7 @@ python3 scripts/wallpaper-pro.py apply MEDIA_ID --mode span
 python3 scripts/wallpaper-pro.py off
 ```
 
-`MEDIA_ID` comes from `status`. `remove MEDIA_ID` forgets an unassigned library entry; it retains the cached media file. Imports copy local files, leaving the originals untouched. Downloads have a 512 MiB limit and a 30-second socket timeout. Import validation currently checks file extensions, not media contents; a corrupt file may import but fail to render.
+`MEDIA_ID` comes from `status`. `unassign MONITOR` clears one saved monitor assignment; `battery on` and `battery off` control battery pausing. `omarchy-shell wallpaper-pro status` reports renderer state, per-monitor playback positions, and decoder errors while the service is loaded. `remove MEDIA_ID` forgets an unassigned library entry; it retains the cached media file. Imports copy local files, leaving the originals untouched. Downloads have a 512 MiB limit and a 30-second socket timeout. Imports use ffprobe to reject files without a readable video/image stream. This checks stream metadata, not every frame; playback errors can still occur.
 
 Settings: `$XDG_CONFIG_HOME/wallpaper-pro/settings.json` (default `~/.config/wallpaper-pro/settings.json`). Media: `$XDG_DATA_HOME/wallpaper-pro/library` (default `~/.local/share/wallpaper-pro/library`). Settings include source URLs, so avoid sharing them if URLs contain private access tokens. Nothing uploads your media or sends analytics.
 
@@ -60,6 +62,12 @@ Turn off Wallpaper Pro, then run `omarchy plugin remove bravehart911.wallpaper-p
 ```sh
 python3 -m unittest discover -s tests -v
 omarchy plugin validate .
+```
+
+A graphical playback smoke test (briefly shows test media, without saving settings):
+
+```sh
+WALLPAPER_PRO_SMOKE_KIND=video WALLPAPER_PRO_SMOKE_MEDIA=file:///absolute/path/test.mp4 quickshell -p SmokeTest.qml
 ```
 
 See [release checklist](docs/RELEASE.md) for remaining integration testing and marketplace steps. No wallpaper assets are bundled. Import only media you have permission to use.

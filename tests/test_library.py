@@ -1,3 +1,4 @@
+import base64
 import importlib.util
 import tempfile
 import unittest
@@ -14,7 +15,7 @@ class LibraryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             source = base / "a ' quoted image.png"
-            source.write_bytes(b'test fixture')
+            source.write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII='))
             media = app.import_media(str(source), base / 'data')
             source.unlink()
             self.assertTrue(Path(media['path']).exists())
@@ -29,12 +30,33 @@ class LibraryTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 app.update(state, SimpleNamespace(command='remove', id=media['id']), base)
 
-    def test_video_span_rejected_without_mutation(self):
+    def test_video_span_and_clear_monitor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            media_path = Path(tmp) / 'movie.mp4'
+            media_path.touch()
+            state = app.default()
+            state['library'] = [{'id': 'v', 'kind': 'video', 'path': str(media_path)}]
+            app.update(state, SimpleNamespace(command='apply', id='v', mode='span'), Path(tmp))
+            self.assertEqual(state['mode'], 'span')
+            self.assertTrue(state['enabled'])
+            state['assignments']['DP-2'] = 'v'
+            app.update(state, SimpleNamespace(command='unassign', monitor='DP-2'), Path(tmp))
+            self.assertEqual(state['assignments'], {})
+
+    def test_corrupt_import_is_not_cached(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / 'broken.png'
+            source.write_bytes(b'not an image')
+            with self.assertRaises(ValueError):
+                app.import_media(str(source), Path(tmp) / 'data')
+            self.assertEqual(list((Path(tmp) / 'data/library').iterdir()), [])
+
+    def test_missing_assignment_file_preserves_mode(self):
         state = app.default()
-        state['library'] = [{'id': 'v', 'kind': 'video'}]
+        state['library'] = [{'id': 'gone', 'kind': 'image', 'path': '/nonexistent/wallpaper.png'}]
         with self.assertRaises(ValueError):
-            app.update(state, SimpleNamespace(command='apply', id='v', mode='span'), Path('/unused'))
-        self.assertFalse(state['enabled'])
+            app.update(state, SimpleNamespace(command='apply', id='gone', mode='span'), Path('/unused'))
+        self.assertEqual(state['mode'], 'individual')
 
     def test_invalid_sources(self):
         with tempfile.TemporaryDirectory() as tmp:

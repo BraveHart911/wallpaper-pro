@@ -16,8 +16,18 @@ Item {
     property string selected: ""
     property string message: "Add an image or video to get started."
     readonly property string script: decodeURIComponent(Qt.resolvedUrl("scripts/wallpaper-pro.py").toString().replace(/^file:\/\//, ""))
+    onStateChanged: {
+        mode.currentIndex = Math.max(0, ["individual", "all", "span"].indexOf(state.mode || "individual"))
+        if (!(state.library || []).some(item => item.id === selected))
+            selected = state.default || ((state.library || [])[0] || {}).id || ""
+    }
     function open(payload) { opened = true; run(["status"]) }
     function close() { opened = false }
+    function assignment(name) {
+        const id = state.mode === "individual" ? (state.assignments || {})[name] : state.default
+        const media = (state.library || []).find(item => item.id === id)
+        return media ? media.name : "Desktop default"
+    }
     function run(args) {
         if (worker.running) return
         message = "Working…"
@@ -44,8 +54,8 @@ Item {
     PanelWindow {
         id: panel
         visible: root.opened
-        implicitWidth: 940
-        implicitHeight: 690
+        implicitWidth: Math.min(1040, screen.width - 48)
+        implicitHeight: Math.min(800, screen.height - 64)
         color: "#111820"
         WlrLayershell.namespace: "wallpaper-pro-manager"
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
@@ -54,6 +64,8 @@ Item {
             anchors.fill: parent
             anchors.margins: 28
             spacing: 16
+            focus: true
+            Keys.onEscapePressed: root.close()
             RowLayout {
                 Layout.fillWidth: true
                 ColumnLayout {
@@ -70,6 +82,31 @@ Item {
                 Button { text: "Import link"; enabled: !worker.running && link.text.trim() !== ""; onClicked: root.run(["import", link.text.trim()]) }
             }
             Label { text: root.message; color: "#bcd0dd"; Layout.fillWidth: true; wrapMode: Text.Wrap }
+            RowLayout {
+                Repeater {
+                    model: Quickshell.screens
+                    delegate: Rectangle {
+                        required property var modelData
+                        Layout.fillWidth: true
+                        implicitHeight: 62
+                        radius: 8
+                        color: "#1d2935"
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: 10
+                            Label { text: parent.parent.modelData.name; color: "#7ce2c0"; font.bold: true }
+                            Label { text: root.assignment(parent.parent.modelData.name); color: "#a4b4c4"; elide: Text.ElideRight; Layout.fillWidth: true }
+                        }
+                    }
+                }
+            }
+            Label {
+                visible: !(root.state.library || []).length
+                text: "Start your collection with a local image, a video, or a direct web link."
+                color: "#a4b4c4"
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+            }
             ScrollView {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -99,7 +136,7 @@ Item {
                 }
             }
             RowLayout {
-                ComboBox { id: mode; model: ["Individual monitor", "All monitors", "Panoramic image"] }
+                ComboBox { id: mode; implicitWidth: 210; model: ["Individual monitor", "All monitors", "Panoramic (experimental)"] }
                 ComboBox { id: monitor; model: Quickshell.screens.map(s => s.name); enabled: mode.currentIndex === 0; Layout.fillWidth: true }
                 Button {
                     text: "Apply wallpaper"
@@ -107,7 +144,18 @@ Item {
                     onClicked: root.run(["apply", root.selected, "--mode", ["individual", "all", "span"][mode.currentIndex], "--monitor", monitor.currentText])
                 }
             }
-            Label { text: "Videos loop silently. All monitors repeats the video on each screen; panoramic mode spans images. Turn off restores the wallpaper underneath."; Layout.fillWidth: true; wrapMode: Text.Wrap; color: "#a4b4c4" }
+            RowLayout {
+                CheckBox {
+                    text: "Pause video on battery"
+                    checked: root.state.pauseOnBattery !== false
+                    enabled: !worker.running
+                    onClicked: root.run(["battery", checked ? "on" : "off"])
+                }
+                Item { Layout.fillWidth: true }
+                Button { text: "Clear monitor"; enabled: mode.currentIndex === 0 && !worker.running; onClicked: root.run(["unassign", monitor.currentText]) }
+                Button { text: "Remove selected"; enabled: root.selected !== "" && !worker.running; onClicked: root.run(["remove", root.selected]) }
+            }
+            Label { text: "Videos loop silently. Panoramic mode spans images or video. Video timing is drift-corrected, not frame locked. Turn off restores the wallpaper underneath."; Layout.fillWidth: true; wrapMode: Text.Wrap; color: "#a4b4c4" }
         }
     }
 }
