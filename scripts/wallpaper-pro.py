@@ -764,7 +764,17 @@ def theme_catalog():
             group = ('Red', 'Orange', 'Yellow', 'Lime', 'Green', 'Teal', 'Cyan', 'Azure', 'Blue', 'Indigo', 'Violet', 'Purple', 'Magenta', 'Rose', 'Red')[int((hue * 360 + 12) // 24) % 15] if saturation >= .13 else 'Neutral'
         else:
             accent, hue, saturation, value, group = '#777777', 0, 0, .47, 'Neutral'
-        colors.append({'name': theme, 'accent': accent if match else '#777777', 'group': group,
+        mode = str(config.get('mode', '')).strip().lower()
+        if mode not in ('light', 'dark'):
+            background = re.fullmatch(r'#?([0-9a-fA-F]{6})', str(config.get('background', '')))
+            if background:
+                raw_bg = background.group(1)
+                channels = [int(raw_bg[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+                luminance = sum(channel * weight for channel, weight in zip(channels, (.2126, .7152, .0722)))
+                mode = 'light' if luminance >= .5 else 'dark'
+            else:
+                mode = 'unknown'
+        colors.append({'name': theme, 'accent': accent if match else '#777777', 'group': group, 'mode': mode,
                        'hue': hue * 360 if saturation >= .13 else 999,
                        'saturation': saturation, 'value': value, 'current': theme == current})
     colors.sort(key=lambda item: (item['hue'], item['value'], item['name'].casefold()))

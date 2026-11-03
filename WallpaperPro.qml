@@ -69,6 +69,8 @@ Item {
                     const catalog = JSON.parse(text)
                     root.currentThemeName = catalog.current
                     root.availableThemes = catalog.themes
+                    const current = catalog.themes.find(item => item.current)
+                    root.currentThemeMode = current ? current.mode : "unknown"
                 } catch (e) { root.operationError = "Could not read Omarchy's theme colors." }
             }
         }
@@ -92,6 +94,8 @@ Item {
             if (code !== 0) root.operationError = "Could not apply " + root.pendingTheme + "."
             else {
                 root.currentThemeName = root.pendingTheme
+                const appliedTheme = root.availableThemes.find(item => item.name === root.pendingTheme)
+                root.currentThemeMode = appliedTheme ? appliedTheme.mode : "unknown"
                 root.currentBackground = ""
                 root.message = root.pendingTheme + " is now active. Refreshing wallpapers and colors…"
                 theme.refresh()
@@ -117,6 +121,7 @@ Item {
     property string appWindowTitle: "Wallpaper Pro"
     property var availableThemes: []
     property string currentThemeName: ""
+    property string currentThemeMode: "unknown"
     property string currentBackground: ""
     property string themeSearch: ""
     property string pendingTheme: ""
@@ -567,7 +572,7 @@ Item {
                                             Layout.fillWidth: true
                                             spacing: 4
                                             Label { text: "Themes & appearance"; color: theme.colors.foreground; font.pixelSize: 27; font.weight: Font.DemiBold }
-                                            Label { text: root.currentThemeName ? "Current theme · " + root.currentThemeName : "Choose an Omarchy theme"; color: theme.secondary; font.pixelSize: 12 }
+                                            Label { text: root.currentThemeName ? "Current theme · " + root.currentThemeName + " · " + (root.currentThemeMode === "unknown" ? "Mode unknown" : root.currentThemeMode.charAt(0).toUpperCase() + root.currentThemeMode.slice(1) + " mode") : "Choose an Omarchy theme"; color: theme.secondary; font.pixelSize: 12 }
                                         }
                                         ProButton { text: "Refresh list"; quiet: true; onClicked: root.refreshThemeControls() }
                                     }
@@ -630,7 +635,17 @@ Item {
                                                             Layout.fillWidth: true
                                                             spacing: 2
                                                             Label { Layout.fillWidth: true; text: themeCard.modelData.name; color: theme.colors.foreground; font.pixelSize: 12; font.weight: Font.Medium; elide: Text.ElideRight }
-                                                            Label { text: themeCard.modelData.group; color: theme.secondary; font.pixelSize: 10 }
+                                                            RowLayout {
+                                                                spacing: 7
+                                                                Label { text: themeCard.modelData.group; color: theme.secondary; font.pixelSize: 10 }
+                                                                Rectangle {
+                                                                    implicitWidth: modeLabel.implicitWidth + 12
+                                                                    implicitHeight: 18
+                                                                    radius: 5
+                                                                    color: themeCard.modelData.mode === "light" ? "#f0e8d7" : themeCard.modelData.mode === "dark" ? "#303944" : root.surface
+                                                                    Label { id: modeLabel; anchors.centerIn: parent; text: themeCard.modelData.mode === "unknown" ? "Mode ?" : themeCard.modelData.mode === "light" ? "Light" : "Dark"; color: themeCard.modelData.mode === "light" ? "#49443a" : theme.colors.foreground; font.pixelSize: 9; font.weight: Font.DemiBold }
+                                                                }
+                                                            }
                                                         }
                                                         ProButton {
                                                             text: themeCard.modelData.current ? "Current" : "Apply"
