@@ -605,7 +605,7 @@ Item {
                                                 Accessible.role: Accessible.Button
                                                 Accessible.name: card.favorite ? "Remove from favorites" : "Add to favorites"
                                                 Accessible.onPressAction: root.run(["favorite", card.modelData.id, card.favorite ? "off" : "on"])
-                                                NavIcon { anchors.centerIn: parent; width: 17; height: 17; name: "favorite"; color: "white"; filled: card.favorite }
+                                                NavIcon { anchors.centerIn: parent; anchors.horizontalCenterOffset: -0.5; anchors.verticalCenterOffset: -1; width: 18; height: 18; name: "favorite"; color: "white"; filled: card.favorite }
                                                 MouseArea {
                                                     anchors.fill: parent
                                                     cursorShape: Qt.PointingHandCursor
