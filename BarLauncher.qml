@@ -3,6 +3,9 @@ import qs.Ui
 
 BarWidget {
     id: root
+    property var shell: null
+    moduleName: "bravehart911.wallpaper-pro"
+    readonly property var hostShell: shell || (bar && bar.shell ? bar.shell : null)
     implicitWidth: button.implicitWidth
     implicitHeight: button.implicitHeight
     WidgetButton {
@@ -11,6 +14,6 @@ BarWidget {
         bar: root.bar
         text: "󰸉"
         tooltipText: "Wallpaper Pro"
-        onPressed: { if (root.bar && root.bar.shell) root.bar.shell.toggle(root.bar.shell.pluginId, "{}") }
+        onPressed: { if (root.hostShell) root.hostShell.toggle(root.moduleName, "{}") }
     }
 }
