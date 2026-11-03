@@ -5,6 +5,7 @@ Canvas {
     property string name: ""
     property color color: "white"
     property color backgroundColor: "transparent"
+    property bool filled: false
     antialiasing: true
 
     onPaint: {
@@ -45,12 +46,23 @@ Canvas {
             ctx.beginPath(); ctx.arc(9, 6, 2.4, 0, Math.PI * 2); ctx.stroke()
             ctx.beginPath(); ctx.arc(15, 12, 2.4, 0, Math.PI * 2); ctx.stroke()
             ctx.beginPath(); ctx.arc(7, 18, 2.4, 0, Math.PI * 2); ctx.stroke()
+        } else if (name === "favorite") {
+            ctx.beginPath()
+            ctx.moveTo(12, 20)
+            ctx.bezierCurveTo(10.4, 18.4, 3, 13.8, 3, 8.6)
+            ctx.bezierCurveTo(3, 4.5, 8.2, 3.1, 12, 7.3)
+            ctx.bezierCurveTo(15.8, 3.1, 21, 4.5, 21, 8.6)
+            ctx.bezierCurveTo(21, 13.8, 13.6, 18.4, 12, 20)
+            ctx.closePath()
+            if (filled) ctx.fill()
+            else ctx.stroke()
         }
     }
 
     onNameChanged: requestPaint()
     onColorChanged: requestPaint()
     onBackgroundColorChanged: requestPaint()
+    onFilledChanged: requestPaint()
     onWidthChanged: requestPaint()
     onHeightChanged: requestPaint()
 }

@@ -133,7 +133,7 @@ Item {
     readonly property bool dark: (Qt.color(theme.colors.background).r + Qt.color(theme.colors.background).g + Qt.color(theme.colors.background).b) < 1.5
     readonly property color surface: Qt.tint(theme.colors.background, Qt.rgba(0.5, 0.5, 0.5, 0.07))
     readonly property color divider: Qt.rgba(0.5, 0.5, 0.5, 0.15)
-    readonly property var sections: ["All wallpapers", "Live wallpapers", "Single monitor", "Dual panorama", "My imports", "Themes"]
+    readonly property var sections: ["All wallpapers", "Live wallpapers", "Single monitor", "Dual panorama", "My imports", "Favorites", "Themes"]
     function displayName(media) {
         if (!media) return "Choose a wallpaper"
         const title = String(media.name || "").replace(/\.(jpg|jpeg|png|webp|bmp|avif|mp4|webm|mkv|mov|m4v|gif)$/i, "").replace(/[._ -]+\d{3,5}[x×]\d{3,5}$/i, "").replace(/[-_]+/g, " ")
@@ -146,6 +146,7 @@ Item {
     property bool liveDualOnly: false
     property string searchQuery: ""
     readonly property string sortOrder: state.sortOrder || "original"
+    readonly property var favoriteIds: state.favorites || []
     readonly property var sortKeys: ["original", "name", "color"]
     readonly property var filteredThemes: availableThemes.filter(item => (item.name + " " + item.group).toLowerCase().indexOf(themeSearch.trim().toLowerCase()) !== -1)
     function matchesSearch(item) {
@@ -158,7 +159,7 @@ Item {
     onLiveDualOnlyChanged: stopPreview(previewId)
     readonly property var filteredLibrary: Library.ordered((state.library || []).filter(item => {
         const layout = item.layout || ((item.width || 0) / (item.height || 1) >= 2.7 ? "panoramic" : "single")
-        const matchesSection = librarySection === 0 || (librarySection === 1 && item.kind === "video" && (!liveDualOnly || layout === "panoramic")) || (librarySection === 2 && layout === "single") || (librarySection === 3 && layout === "panoramic") || (librarySection === 4 && !item.bundled && !item.themeManaged) || (librarySection === 5 && (item.themes || []).length > 0)
+        const matchesSection = librarySection === 0 || (librarySection === 1 && item.kind === "video" && (!liveDualOnly || layout === "panoramic")) || (librarySection === 2 && layout === "single") || (librarySection === 3 && layout === "panoramic") || (librarySection === 4 && !item.bundled && !item.themeManaged) || (librarySection === 5 && favoriteIds.indexOf(item.id) !== -1) || (librarySection === 6 && (item.themes || []).length > 0)
         return matchesSection && matchesSearch(item)
     }), sortOrder, state.contextEnabled === true)
     readonly property var selectedMedia: (state.library || []).find(item => item.id === selected) || null
@@ -268,6 +269,7 @@ Item {
                         root.message = "Importing " + (result.done + 1) + " of " + result.total + " · " + result.file
                         return
                     }
+                    if (root.pendingCommand === "favorite" && root.librarySection === 5 && (result.favorites || []).indexOf(root.selected) === -1) root.selected = ""
                     root.state = result
                     if (root.pendingCommand === "import-folder" && result.lastFolderImport) {
                         const report = result.lastFolderImport
@@ -372,7 +374,7 @@ Item {
                                     Layout.fillWidth: true
                                     text: modelData
                                     navigation: true
-                                    iconName: ["library", "live", "monitor", "panorama", "imports", "themes"][index]
+                                    iconName: ["library", "live", "monitor", "panorama", "imports", "favorite", "themes"][index]
                                     checked: root.librarySection === index
                                     onClicked: root.librarySection = index
                                 }
@@ -514,6 +516,7 @@ Item {
                                         id: card
                                         required property var modelData
                                         required property int index
+                                        readonly property bool favorite: root.favoriteIds.indexOf(modelData.id) !== -1
                                         Accessible.role: Accessible.Button
                                         Accessible.name: root.displayName(modelData) + ", " + root.mediaSubtitle(modelData)
                                         Accessible.selected: root.selected === modelData.id
@@ -565,13 +568,6 @@ Item {
                                                     color: "#a0101318"
                                                     Text { anchors.centerIn: parent; text: card.modelData.kind === "video" ? (root.previewId === card.modelData.id ? "▶ PREVIEW" : "▶ LIVE") : "THEME"; color: "white"; font.pixelSize: 9; font.weight: Font.DemiBold }
                                                 }
-                                                Rectangle {
-                                                    visible: root.selected === card.modelData.id
-                                                    anchors { right: parent.right; top: parent.top; margins: 8 }
-                                                    width: 22; height: 22; radius: 11
-                                                    color: "#0a84ff"
-                                                    Text { anchors.centerIn: parent; text: "✓"; color: "white"; font.pixelSize: 13 }
-                                                }
                                             }
                                             ColumnLayout {
                                                 anchors { left: parent.left; right: parent.right; top: picture.bottom; margins: 10; topMargin: 9; rightMargin: 24 }
@@ -596,12 +592,32 @@ Item {
                                                 onClicked: { gallery.currentIndex = card.index; gallery.forceActiveFocus(); root.selectMedia(card.modelData) }
                                                 onDoubleClicked: if (!worker.running) root.run(["apply", card.modelData.id, "--mode", card.modelData.layout === "panoramic" ? "span" : "individual", "--monitor", monitor.currentText])
                                             }
+                                            Rectangle {
+                                                id: favoriteButton
+                                                anchors { top: parent.top; right: parent.right; margins: 12 }
+                                                width: 30
+                                                height: 30
+                                                radius: 15
+                                                z: 2
+                                                visible: card.favorite || cardMouse.containsMouse
+                                                color: card.favorite ? Qt.rgba(0.70, 0.15, 0.25, 0.92) : Qt.rgba(0.03, 0.05, 0.07, 0.72)
+                                                border.color: Qt.rgba(1, 1, 1, 0.28)
+                                                Accessible.role: Accessible.Button
+                                                Accessible.name: card.favorite ? "Remove from favorites" : "Add to favorites"
+                                                Accessible.onPressAction: root.run(["favorite", card.modelData.id, card.favorite ? "off" : "on"])
+                                                NavIcon { anchors.centerIn: parent; width: 17; height: 17; name: "favorite"; color: "white"; filled: card.favorite }
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: root.run(["favorite", card.modelData.id, card.favorite ? "off" : "on"])
+                                                }
+                                            }
                                             ToolTip.visible: cardMouse.containsMouse
                                             ToolTip.delay: 700
                                             ToolTip.text: card.modelData.name + (card.modelData.contextGroup ? " · Suggested subject: " + card.modelData.contextGroup + (card.modelData.contextUncertain ? " (uncertain)" : "") : "") + (card.modelData.colorName ? " · " + card.modelData.colorName : "")
                                         }
                                     }
-                                    Label { anchors.centerIn: parent; visible: !root.filteredLibrary.length; text: root.librarySection === 1 && root.liveDualOnly ? "No dual-monitor live wallpapers found.\nTurn off the filter to see all live wallpapers." : "No wallpapers here yet.\nAdd a file, folder, or web link to get started."; color: theme.secondary; horizontalAlignment: Text.AlignHCenter; lineHeight: 1.6; font.pixelSize: 13 }
+                                    Label { anchors.centerIn: parent; visible: !root.filteredLibrary.length; text: root.librarySection === 1 && root.liveDualOnly ? "No dual-monitor live wallpapers found.\nTurn off the filter to see all live wallpapers." : root.librarySection === 5 ? "No favorites yet.\nTap the heart on a wallpaper to save it here." : "No wallpapers here yet.\nAdd a file, folder, or web link to get started."; color: theme.secondary; horizontalAlignment: Text.AlignHCenter; lineHeight: 1.6; font.pixelSize: 13 }
                                 }
                             }
                                 ColorRail {

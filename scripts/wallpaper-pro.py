@@ -31,7 +31,7 @@ def directories():
 
 def default():
     return {'version': 1, 'enabled': False, 'mode': 'individual', 'default': '',
-            'assignments': {}, 'library': [], 'pauseOnBattery': True, 'pauseOnFullscreen': True}
+            'assignments': {}, 'library': [], 'favorites': [], 'pauseOnBattery': True, 'pauseOnFullscreen': True}
 
 
 def load(path):
@@ -40,6 +40,7 @@ def load(path):
     value = json.loads(path.read_text())
     if value.get('version') != 1:
         raise ValueError('Unsupported settings version')
+    value.setdefault('favorites', [])
     return value
 
 
@@ -404,6 +405,14 @@ def update(state, args, data):
         state['contextEnabled'] = args.value == 'on'
     elif args.command == 'sort':
         state['sortOrder'] = args.order
+    elif args.command == 'favorite':
+        if not any(item['id'] == args.id for item in state['library']):
+            raise ValueError('Wallpaper not found in the library')
+        favorites = state.setdefault('favorites', [])
+        if args.value == 'on' and args.id not in favorites:
+            favorites.append(args.id)
+        elif args.value == 'off' and args.id in favorites:
+            favorites.remove(args.id)
     elif args.command == 'off':
         state['enabled'] = False
     elif args.command == 'remove':
@@ -415,6 +424,7 @@ def update(state, args, data):
         if args.id == state['default'] or args.id in state['assignments'].values():
             raise ValueError('This wallpaper is assigned. Assign another wallpaper before removing it.')
         state['library'] = [item for item in state['library'] if item['id'] != args.id]
+        state['favorites'] = [item for item in state.get('favorites', []) if item != args.id]
     return state
 
 
@@ -790,6 +800,9 @@ def main():
     context.add_argument('value', choices=['on', 'off'])
     sorting = commands.add_parser('sort')
     sorting.add_argument('order', choices=['original', 'name', 'color'])
+    favorite = commands.add_parser('favorite')
+    favorite.add_argument('id')
+    favorite.add_argument('value', choices=['on', 'off'])
     themes = commands.add_parser('sync-themes', help='Discover wallpapers in installed Omarchy themes')
     themes.add_argument('--progress', action='store_true')
     thumbnails = commands.add_parser('thumbnails')
