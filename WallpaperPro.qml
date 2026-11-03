@@ -43,6 +43,8 @@ Item {
         mode.currentIndex = item.layout === "panoramic" ? 2 : 0
     }
     readonly property string playbackErrors: rendererService.players.map(player => player.errorString ? player.monitorName + ": " + player.errorString : "").filter(text => text !== "").join(" · ")
+    property string pendingCommand: ""
+    property string folderErrors: ""
     property string message: "Add an image or video to get started."
     readonly property string script: decodeURIComponent(Qt.resolvedUrl("scripts/wallpaper-pro.py").toString().replace(/^file:\/\//, ""))
     onStateChanged: {
@@ -69,16 +71,31 @@ Item {
     }
     function run(args) {
         if (worker.running) return
-        message = "Working…"
+        pendingCommand = args[0]
+        folderErrors = ""
+        message = pendingCommand === "import-folder" ? "Scanning folder and subfolders…" : "Working…"
         worker.command = ["python3", script].concat(args)
         worker.running = true
     }
     Process {
         id: worker
-        stdout: StdioCollector {
-            onStreamFinished: {
-                try { root.state = JSON.parse(text); root.message = "Library ready · " + root.state.library.length + " wallpapers" }
-                catch (e) { }
+        stdout: SplitParser {
+            onRead: function(line) {
+                try {
+                    const result = JSON.parse(line)
+                    if (result.event === "progress") {
+                        root.message = "Importing " + (result.done + 1) + " of " + result.total + " · " + result.file
+                        return
+                    }
+                    root.state = result
+                    if (root.pendingCommand === "import-folder" && result.lastFolderImport) {
+                        const report = result.lastFolderImport
+                        root.message = "Folder imported · " + report.added + " added · " + report.duplicates + " duplicates · " + report.failed + " failed · " + report.skipped + " unsupported files skipped"
+                        root.folderErrors = report.errors.slice(0, 3).map(error => error.file + ": " + error.error).join("\n")
+                    } else {
+                        root.message = "Library ready · " + root.state.library.length + " wallpapers"
+                    }
+                } catch (e) { root.message = "Could not read the library response." }
             }
         }
         stderr: StdioCollector { onStreamFinished: { if (text.trim()) root.message = text.trim() } }
@@ -89,6 +106,11 @@ Item {
         title: "Add wallpaper"
         nameFilters: ["Wallpaper media (*.jpg *.jpeg *.png *.webp *.bmp *.avif *.mp4 *.webm *.mkv *.mov *.m4v)"]
         onAccepted: root.run(["import", selectedFile.toString()])
+    }
+    FolderDialog {
+        id: folderPicker
+        title: "Add wallpaper folder (includes all subfolders)"
+        onAccepted: root.run(["import-folder", selectedFolder.toString(), "--progress"])
     }
     FloatingWindow {
         id: panel
@@ -130,10 +152,20 @@ Item {
                 }
                 RowLayout {
                     Button { text: "Add local file"; enabled: !worker.running; onClicked: picker.open() }
+                    Button { text: "Add folder"; enabled: !worker.running; onClicked: folderPicker.open() }
                     TextField { id: link; Layout.fillWidth: true; placeholderText: "Paste a direct image or video URL"; onAccepted: if (text.trim()) root.run(["import", text.trim()]) }
                     Button { text: "Import link"; enabled: !worker.running && link.text.trim() !== ""; onClicked: root.run(["import", link.text.trim()]) }
                 }
                 Label { text: root.message; color: theme.colors.foreground; Layout.fillWidth: true; wrapMode: Text.Wrap }
+                Label {
+                    visible: root.folderErrors !== ""
+                    text: root.folderErrors
+                    color: theme.colors.red
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
+                    maximumLineCount: 3
+                    elide: Text.ElideRight
+                }
                 Label {
                     text: "Playback issue: " + root.playbackErrors
                     visible: root.playbackErrors !== ""

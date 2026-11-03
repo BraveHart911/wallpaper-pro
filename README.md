@@ -2,13 +2,14 @@
 
 An Omarchy shell plugin for a personal image and live wallpaper collection.
 
-**Early development · 0.3.3-alpha.1.** This is a working foundation, not a marketplace release yet.
+**Early development · 0.4.0-alpha.1.** This is a working foundation, not a marketplace release yet.
 
 ## Current features
 
 - Browse 15 included wallpapers: six 1920 × 1080 images, six 3840 × 1080 panoramas, and three silent looping videos.
 - Filter by Videos, Single monitor, Dual panorama, or My imports, and search by name.
 - Import local images and videos through a file picker, with automatically generated thumbnail images.
+- Add a folder to recursively import supported images and videos from every subfolder, with progress and duplicate detection.
 - Download direct HTTP/HTTPS media links into a private local collection.
 - Assign a different image or looping, muted video to each monitor.
 - Repeat one image or video on all connected monitors.
@@ -53,6 +54,18 @@ The manager uses Omarchy’s current palette; theme changes update its colors wi
 Video pauses on the monitor occupied by a fullscreen application. Other monitors continue playing, and playback resumes when fullscreen ends. `fullscreen off` disables this behavior. Connector assignments survive unplug/replug; panoramic geometry uses logical output coordinates and handles empty layouts safely. Mixed scale, portrait, and negative positions are covered by geometry tests; physical hotplug and display sleep testing remain on the release checklist.
 
 The manager warns about potentially competing full-screen wallpaper surfaces. It reports these without stopping them; use one active live wallpaper renderer per screen. Run `python3 scripts/wallpaper-pro.py doctor` for the same read-only check. Diagnostics inspect Hyprland layers only when the manager opens or the command runs.
+
+## Add a folder
+
+Choose **Add folder** and select your wallpaper collection. Wallpaper Pro scans that folder and all nested subfolders, copies supported media into its managed library, and generates a thumbnail for each added image or video. The window shows file-by-file progress and a final count of added files, duplicates, failures, and unsupported files.
+
+A damaged or unreadable file does not stop the remaining imports. Completed imports are saved as the batch runs. Originals and active wallpaper assignments remain unchanged. Duplicate detection uses file contents, so adding the folder again imports new media without creating duplicate library entries.
+
+Folder imports are snapshots, not background folder watchers. Symbolic links and Wallpaper Pro's own cache directories are excluded from recursive scanning. Existing import size and format limits apply to each file.
+
+```sh
+python3 scripts/wallpaper-pro.py import-folder '/path/to/wallpapers'
+```
 
 ## Thumbnail previews
 

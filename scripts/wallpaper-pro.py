@@ -185,6 +185,61 @@ def import_media(source, data):
             temporary.unlink(missing_ok=True)
 
 
+def import_folder(state, source, data, progress=None, checkpoint=None):
+    parsed = urllib.parse.urlparse(source)
+    if parsed.scheme == 'file' and parsed.netloc in ('', 'localhost'):
+        folder = Path(urllib.request.url2pathname(parsed.path)).expanduser().resolve()
+    elif parsed.scheme:
+        raise ValueError('Choose a local folder')
+    else:
+        folder = Path(source).expanduser().resolve()
+    if not folder.is_dir():
+        raise ValueError('The selected folder does not exist or is not a directory')
+    managed = data.resolve()
+    if folder.is_relative_to(managed):
+        raise ValueError('Choose your original media folder, not Wallpaper Pro cache storage')
+    report = {'folder': str(folder), 'found': 0, 'added': 0, 'duplicates': 0, 'skipped': 0, 'failed': 0, 'errors': []}
+    def failure(path, error):
+        report['failed'] += 1
+        if len(report['errors']) < 100:
+            report['errors'].append({'file': str(path), 'error': str(error)})
+    candidates = []
+    for directory, dirs, files in os.walk(folder, followlinks=False, onerror=lambda e: failure(e.filename, e)):
+        dirs[:] = sorted(name for name in dirs if not (Path(directory) / name).is_symlink()
+                         and not (Path(directory) / name).resolve().is_relative_to(managed))
+        for name in sorted(files):
+            path = Path(directory) / name
+            if path.is_symlink() or path.suffix.lower() not in IMAGE | VIDEO:
+                report['skipped'] += 1
+                continue
+            candidates.append(path)
+    report['found'] = len(candidates)
+    known = {item['id']: item for item in state['library']}
+    for index, path in enumerate(candidates):
+        if progress:
+            progress({'event': 'progress', 'done': index, 'total': len(candidates), 'file': str(path.relative_to(folder))})
+        try:
+            media = import_media(str(path), data)
+            media['sourceFolder'] = str(folder)
+            media['relativePath'] = str(path.relative_to(folder))
+            if media['id'] in known:
+                known[media['id']]['thumbnailUrl'] = media['thumbnailUrl']
+                known[media['id']].pop('thumbnailError', None)
+                report['duplicates'] += 1
+            else:
+                state['library'].append(media)
+                known[media['id']] = media
+                report['added'] += 1
+            # Keep completed imports if a later file fails or the process is interrupted.
+            state['lastFolderImport'] = report
+            if checkpoint:
+                checkpoint(state)
+        except (ValueError, OSError) as error:
+            failure(path.relative_to(folder), error)
+    state['lastFolderImport'] = report
+    return state
+
+
 def with_starter_library(state, root=None):
     library_root = (root or Path(__file__).resolve().parents[1]) / 'assets/library'
     catalog_path = library_root / 'catalog.json'
@@ -296,6 +351,9 @@ def main():
     battery.add_argument('value', choices=['on', 'off'])
     imp = commands.add_parser('import')
     imp.add_argument('source')
+    folder = commands.add_parser('import-folder', help='Import a local folder and all media subfolders')
+    folder.add_argument('source')
+    folder.add_argument('--progress', action='store_true', help='Emit JSON progress events for the graphical manager')
     apply = commands.add_parser('apply')
     apply.add_argument('id')
     apply.add_argument('--mode', choices=['individual', 'all', 'span'], default='individual')
@@ -314,7 +372,10 @@ def main():
         state = with_starter_library(load(path))
         if args.command in ('status', 'thumbnails'):
             state = ensure_thumbnails(state, data, getattr(args, 'force', False))
-        if args.command not in ('status', 'thumbnails'):
+        if args.command == 'import-folder':
+            progress = (lambda event: print(json.dumps(event), flush=True)) if args.progress else None
+            state = import_folder(state, args.source, data, progress, lambda current: save(path, current))
+        elif args.command not in ('status', 'thumbnails'):
             state = update(state, args, data)
         save(path, state)
         print(json.dumps(state))
