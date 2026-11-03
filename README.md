@@ -2,12 +2,13 @@
 
 An Omarchy shell plugin for a personal image and live wallpaper collection.
 
-**Early development · 0.5.1-alpha.1.** This is a working foundation, not a marketplace release yet.
+**Early development · 0.6.0-alpha.1.** This is a working foundation, not a marketplace release yet.
 
 ## Current features
 
 - Browse 15 included wallpapers: six 1920 × 1080 images, six 3840 × 1080 panoramas, and three silent looping videos.
-- Filter by Videos, Single monitor, Dual panorama, or My imports, and search by name.
+- Filter by live wallpapers, single monitor, dual panorama, My imports, or Themes, and search by wallpaper or theme name.
+- Automatically discover installed Omarchy theme wallpapers and generate their thumbnails.
 - Import local images and videos through a file picker, with automatically generated thumbnail images.
 - Add a folder to recursively import supported images and videos from every subfolder, with progress and duplicate detection.
 - Download direct HTTP/HTTPS media links into a private local collection.
@@ -60,6 +61,20 @@ The manager uses Omarchy’s background and text colors with a blue action accen
 Video pauses on the monitor occupied by a fullscreen application. Other monitors continue playing, and playback resumes when fullscreen ends. `fullscreen off` disables this behavior. Connector assignments survive unplug/replug; panoramic geometry uses logical output coordinates and handles empty layouts safely. Mixed scale, portrait, and negative positions are covered by geometry tests; physical hotplug and display sleep testing remain on the release checklist.
 
 The manager warns about potentially competing full-screen wallpaper surfaces. It reports these without stopping them; use one active live wallpaper renderer per screen. Run `python3 scripts/wallpaper-pro.py doctor` for the same read-only check. Diagnostics inspect Hyprland layers only when the manager opens or the command runs.
+
+## Automatic theme library
+
+While the plugin is enabled, Wallpaper Pro discovers wallpapers on startup, when the manager opens, and every minute in the background—even with the manager closed. Newly installed theme wallpapers appear automatically under **Themes**, alongside their normal image/video categories. Settings also offers **Sync theme wallpapers** for an immediate check.
+
+Discovery reads stock themes at `$OMARCHY_PATH/themes` (default `/usr/share/omarchy/themes`), user themes at `$XDG_CONFIG_HOME/omarchy/themes`, and additional theme backgrounds at `$XDG_CONFIG_HOME/omarchy/backgrounds`. The default config root is `~/.config`. Subfolders, linked theme directories, images, videos, and GIFs are included. Symlink loops are avoided. Identical media is deduplicated by content and tagged with its source themes; existing personal imports are preserved.
+
+Theme media is indexed in place rather than copied. Thumbnails and a file-metadata cache are stored in Wallpaper Pro's data directory. Only new or changed files need decoding, and scans do not hold the settings lock while generating previews. Discovery does not change active wallpapers, monitor assignments, or Omarchy files. Unused removed theme entries leave the catalog; referenced selections and assignments are retained.
+
+The first scan can take time for large collections. You can continue using the app while it runs. Later scans reuse cached metadata and previews. Failed media is skipped and reported in `themeSyncReport` rather than stopping discovery.
+
+```sh
+python3 scripts/wallpaper-pro.py sync-themes
+```
 
 ## Add a folder
 

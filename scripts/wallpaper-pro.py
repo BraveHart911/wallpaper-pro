@@ -15,7 +15,7 @@ import urllib.parse
 import urllib.request
 
 IMAGE = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.avif'}
-VIDEO = {'.mp4', '.webm', '.mkv', '.mov', '.m4v'}
+VIDEO = {'.mp4', '.webm', '.mkv', '.mov', '.m4v', '.gif'}
 MAX_BYTES = 512 * 1024 * 1024
 
 
@@ -144,7 +144,7 @@ def import_media(source, data):
     name = Path(urllib.parse.unquote(parsed.path)).name if remote else source_path.name
     suffix = Path(name).suffix.lower()
     if suffix not in IMAGE | VIDEO:
-        raise ValueError('Supported: JPG, PNG, WebP, BMP, AVIF, MP4, WebM, MKV, MOV, M4V. Use a direct media link, not a web page.')
+        raise ValueError('Supported: JPG, PNG, WebP, BMP, AVIF, MP4, WebM, MKV, MOV, M4V, GIF. Use a direct media link, not a web page.')
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(dir=library, delete=False) as target:
@@ -185,6 +185,16 @@ def import_media(source, data):
             temporary.unlink(missing_ok=True)
 
 
+def refresh_import(existing, media):
+    if existing.get('themeManaged'):
+        existing.update(media)
+        existing.pop('themeManaged', None)
+        existing.pop('themeMissing', None)
+    else:
+        existing['thumbnailUrl'] = media['thumbnailUrl']
+    existing.pop('thumbnailError', None)
+
+
 def import_folder(state, source, data, progress=None, checkpoint=None):
     parsed = urllib.parse.urlparse(source)
     if parsed.scheme == 'file' and parsed.netloc in ('', 'localhost'):
@@ -223,8 +233,7 @@ def import_folder(state, source, data, progress=None, checkpoint=None):
             media['sourceFolder'] = str(folder)
             media['relativePath'] = str(path.relative_to(folder))
             if media['id'] in known:
-                known[media['id']]['thumbnailUrl'] = media['thumbnailUrl']
-                known[media['id']].pop('thumbnailError', None)
+                refresh_import(known[media['id']], media)
                 report['duplicates'] += 1
             else:
                 state['library'].append(media)
@@ -265,8 +274,7 @@ def update(state, args, data):
             state['library'].append(media)
         else:
             existing = next(item for item in state['library'] if item['id'] == media['id'])
-            existing['thumbnailUrl'] = media['thumbnailUrl']
-            existing.pop('thumbnailError', None)
+            refresh_import(existing, media)
     elif args.command == 'apply':
         media = next((item for item in state['library'] if item['id'] == args.id), None)
         if media is None:
@@ -290,6 +298,8 @@ def update(state, args, data):
     elif args.command == 'off':
         state['enabled'] = False
     elif args.command == 'remove':
+        if any(item['id'] == args.id and item.get('themeManaged') for item in state['library']):
+            raise ValueError('Theme wallpapers are managed by Omarchy. Remove their theme to remove them from this collection.')
         if any(item['id'] == args.id and item.get('bundled') for item in state['library']):
             raise ValueError('Starter wallpapers stay in the collection. Filter to My imports for your own media.')
         # Forget the entry; never delete original files or currently assigned media.
@@ -297,6 +307,135 @@ def update(state, args, data):
             raise ValueError('This wallpaper is assigned. Assign another wallpaper before removing it.')
         state['library'] = [item for item in state['library'] if item['id'] != args.id]
     return state
+
+
+def theme_roots():
+    config = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config'))
+    return [(Path(os.environ.get('OMARCHY_PATH', '/usr/share/omarchy')) / 'themes', True),
+            (config / 'omarchy/themes', True), (config / 'omarchy/backgrounds', False)]
+
+
+def discover_theme_library(data, roots=None, cache=None, progress=None, checkpoint=None):
+    previous = cache or {}
+    candidates = {}
+    errors = []
+    for base, nested_backgrounds in (theme_roots() if roots is None else roots):
+        if not base.is_dir():
+            continue
+        try:
+            themes = sorted(base.iterdir())
+        except OSError as error:
+            errors.append(str(error))
+            continue
+        for theme in themes:
+            background = theme / 'backgrounds' if nested_backgrounds else theme
+            if not background.is_dir():
+                continue
+            visited = set()
+            for directory, dirs, files in os.walk(background, followlinks=True, onerror=lambda e: errors.append(str(e))):
+                canonical = Path(directory).resolve()
+                if canonical in visited:
+                    dirs[:] = []
+                    continue
+                visited.add(canonical)
+                dirs.sort()
+                for name in sorted(files):
+                    path = Path(directory) / name
+                    if path.suffix.lower() in IMAGE | VIDEO and path.is_file():
+                        candidates.setdefault(str(path.resolve()), set()).add(theme.name.replace('-', ' ').replace('_', ' ').title())
+    discovered, refreshed = {}, {}
+    dirty = False
+    for index, (filename, themes) in enumerate(sorted(candidates.items())):
+        if progress:
+            progress({'event': 'theme-progress', 'done': index + 1, 'total': len(candidates)})
+        path = Path(filename)
+        fingerprint = None
+        try:
+            stat = path.stat()
+            fingerprint = [stat.st_size, stat.st_mtime_ns]
+            old = previous.get(filename, {})
+            if old.get('fingerprint') == fingerprint and old.get('error'):
+                refreshed[filename] = old
+                errors.append(filename + ': ' + old['error'])
+                continue
+            if old.get('fingerprint') == fingerprint and old.get('media'):
+                media = dict(old['media'])
+                media['thumbnailUrl'] = generate_thumbnail(path, media['kind'], data, media['id'])
+            else:
+                digest = hashlib.sha256()
+                with path.open('rb') as stream:
+                    while chunk := stream.read(1024 * 1024):
+                        digest.update(chunk)
+                identity = digest.hexdigest()
+                dimensions = validate_media(path)
+                kind = 'video' if path.suffix.lower() in VIDEO else 'image'
+                media = {'id': identity, 'name': path.name, 'path': filename, 'url': path.as_uri(),
+                         'kind': kind, 'layout': 'panoramic' if dimensions['width'] / dimensions['height'] >= 2.7 else 'single',
+                         'thumbnailUrl': generate_thumbnail(path, kind, data, identity), 'source': filename, **dimensions}
+            refreshed[filename] = {'fingerprint': fingerprint, 'media': media}
+            if media['id'] not in discovered:
+                discovered[media['id']] = {**media, 'themeManaged': True, 'themes': []}
+            entry = discovered[media['id']]
+            entry['themes'] = sorted(set(entry['themes']) | themes)
+        except (ValueError, OSError) as error:
+            errors.append(filename + ': ' + str(error))
+            if fingerprint is not None:
+                refreshed[filename] = {'fingerprint': fingerprint, 'error': str(error)}
+        dirty = dirty or refreshed.get(filename) != previous.get(filename)
+        if checkpoint and dirty and (index + 1) % 25 == 0:
+            checkpoint({**previous, **refreshed})
+            dirty = False
+    return {'library': list(discovered.values()), 'cache': refreshed,
+            'report': {'files': len(candidates), 'wallpapers': len(discovered), 'failed': len(errors), 'errors': errors[:10]}}
+
+
+def merge_theme_library(state, discovery):
+    # Merge into the latest settings so background discovery cannot overwrite user actions.
+    personal = [item for item in state['library'] if not item.get('themeManaged')]
+    by_id = {item['id']: item for item in personal}
+    for item in personal:
+        item.pop('themes', None)
+    managed = []
+    for media in discovery['library']:
+        if media['id'] in by_id:
+            by_id[media['id']]['themes'] = media['themes']
+        else:
+            managed.append(media)
+    discovered_ids = {item['id'] for item in discovery['library']}
+    assigned = set(state['assignments'].values()) | {state['default']}
+    for old in state['library']:
+        if old.get('themeManaged') and old['id'] not in discovered_ids and old['id'] in assigned:
+            managed.append({**old, 'themeMissing': not Path(old['path']).is_file()})
+    state['library'] = personal + managed
+    state['themeSyncReport'] = discovery['report']
+    return state
+
+
+def sync_themes(config, data, progress=None):
+    data.mkdir(parents=True, exist_ok=True)
+    with (config / '.theme-sync.lock').open('w') as scan_lock:
+        try:
+            fcntl.flock(scan_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return with_starter_library(load(config / 'settings.json'))
+        cache_path = data / 'theme-index.json'
+        try:
+            cache = json.loads(cache_path.read_text()) if cache_path.exists() else {}
+        except (ValueError, OSError):
+            cache = {}
+        if not isinstance(cache, dict):
+            cache = {}
+        # Only metadata scanning and thumbnail generation happen here, outside the settings lock.
+        discovery = discover_theme_library(data, cache=cache, progress=progress, checkpoint=lambda value: save(cache_path, value))
+        if discovery['cache'] != cache:
+            save(cache_path, discovery['cache'])
+        with (config / '.lock').open('w') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            path = config / 'settings.json'
+            state = merge_theme_library(with_starter_library(load(path)), discovery)
+            if not path.exists() or json.loads(path.read_text()) != state:
+                save(path, state)
+            return state
 
 
 def competing_wallpapers(layers, monitors):
@@ -339,6 +478,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
     commands.add_parser('status')
+    themes = commands.add_parser('sync-themes', help='Discover wallpapers in installed Omarchy themes')
+    themes.add_argument('--progress', action='store_true')
     thumbnails = commands.add_parser('thumbnails')
     thumbnails.add_argument('--force', action='store_true', help='Rebuild existing cached previews')
     commands.add_parser('doctor')
@@ -366,6 +507,11 @@ def main():
         return
     config, data = directories()
     config.mkdir(parents=True, exist_ok=True)
+    if args.command == 'sync-themes':
+        os.nice(10)
+        progress = (lambda event: print(json.dumps(event), flush=True)) if args.progress else None
+        print(json.dumps(sync_themes(config, data, progress)))
+        return
     with (config / '.lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         path = config / 'settings.json'

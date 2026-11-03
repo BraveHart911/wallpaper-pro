@@ -7,6 +7,7 @@ import "." as Pro
 ShellRoot {
     Pro.WallpaperPro {
         id: manager
+        automaticThemeSync: false
         opened: true
         renderer.configPath: "/nonexistent/wallpaper-pro-smoke/settings.json"
         renderer.config: ({enabled: true, mode: "span", default: "smoke", pauseOnBattery: false,

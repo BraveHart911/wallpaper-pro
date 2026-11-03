@@ -12,6 +12,41 @@ Item {
     ThemePalette { id: theme }
     Timer { interval: 3000; repeat: true; running: root.opened; onTriggered: theme.refresh() }
     property string compatibilityWarning: ""
+    property string themeSyncMessage: ""
+    property string themeSyncError: ""
+    property bool automaticThemeSync: true
+    property bool libraryInitialized: false
+    property bool refreshAfterThemeSync: false
+    Component.onCompleted: if (automaticThemeSync) startThemeSync()
+    function startThemeSync() {
+        if (!themeSync.running) {
+            themeSyncError = ""
+            themeSyncMessage = "Discovering Omarchy theme wallpapers…"
+            themeSync.running = true
+        }
+    }
+    Timer { interval: 60000; repeat: true; running: root.automaticThemeSync; onTriggered: root.startThemeSync() }
+    Timer {
+        interval: 100
+        running: root.refreshAfterThemeSync && root.opened && !worker.running
+        onTriggered: { root.refreshAfterThemeSync = false; root.run(["status"]) }
+    }
+    Process {
+        id: themeSync
+        command: ["python3", root.script, "sync-themes", "--progress"]
+        stdout: SplitParser {
+            onRead: function(line) {
+                try {
+                    const result = JSON.parse(line)
+                    if (result.event === "theme-progress") root.themeSyncMessage = "Discovering theme wallpapers · " + result.done + " of " + result.total
+                } catch (e) { }
+            }
+        }
+        onExited: function(code, status) {
+            if (code === 0) root.refreshAfterThemeSync = true
+            else root.themeSyncError = "Theme discovery could not finish. Try syncing again in Settings."
+        }
+    }
     Process {
         id: desktopCheck
         command: ["python3", root.script, "doctor"]
@@ -32,13 +67,13 @@ Item {
     readonly property bool dark: (Qt.color(theme.colors.background).r + Qt.color(theme.colors.background).g + Qt.color(theme.colors.background).b) < 1.5
     readonly property color surface: Qt.tint(theme.colors.background, Qt.rgba(0.5, 0.5, 0.5, 0.07))
     readonly property color divider: Qt.rgba(0.5, 0.5, 0.5, 0.15)
-    readonly property var sections: ["All wallpapers", "Live wallpapers", "Single monitor", "Dual panorama", "My imports"]
+    readonly property var sections: ["All wallpapers", "Live wallpapers", "Single monitor", "Dual panorama", "My imports", "Themes"]
     function displayName(media) {
         if (!media) return "Choose a wallpaper"
-        const title = String(media.name || "").replace(/\.(jpg|jpeg|png|webp|bmp|avif|mp4|webm|mkv|mov|m4v)$/i, "").replace(/[._ -]+\d{3,5}[x×]\d{3,5}$/i, "").replace(/[-_]+/g, " ")
+        const title = String(media.name || "").replace(/\.(jpg|jpeg|png|webp|bmp|avif|mp4|webm|mkv|mov|m4v|gif)$/i, "").replace(/[._ -]+\d{3,5}[x×]\d{3,5}$/i, "").replace(/[-_]+/g, " ")
         return title.charAt(0).toUpperCase() + title.slice(1)
     }
-    function mediaSubtitle(media) { return media ? (media.layout === "panoramic" ? "Dual panorama" : "Single monitor") + (media.width ? " · " + media.width + " × " + media.height : "") : "Select a preview from your collection" }
+    function mediaSubtitle(media) { return media ? (media.themes && media.themes.length ? media.themes[0] + " · " : "") + (media.layout === "panoramic" ? "Dual panorama" : "Single monitor") + (media.width ? " · " + media.width + " × " + media.height : "") : "Select a preview from your collection" }
     property var state: ({library: []})
     property string selected: ""
     property int librarySection: 0
@@ -46,8 +81,8 @@ Item {
     onLibrarySectionChanged: selected = ""
     readonly property var filteredLibrary: (state.library || []).filter(item => {
         const layout = item.layout || ((item.width || 0) / (item.height || 1) >= 2.7 ? "panoramic" : "single")
-        const matchesSection = librarySection === 0 || (librarySection === 1 && item.kind === "video") || (librarySection === 2 && layout === "single") || (librarySection === 3 && layout === "panoramic") || (librarySection === 4 && !item.bundled)
-        return matchesSection && String(item.name || "").toLowerCase().indexOf(searchQuery.toLowerCase()) !== -1
+        const matchesSection = librarySection === 0 || (librarySection === 1 && item.kind === "video") || (librarySection === 2 && layout === "single") || (librarySection === 3 && layout === "panoramic") || (librarySection === 4 && !item.bundled && !item.themeManaged) || (librarySection === 5 && (item.themes || []).length > 0)
+        return matchesSection && (String(item.name || "") + " " + (item.themes || []).join(" ")).toLowerCase().indexOf(searchQuery.toLowerCase()) !== -1
     })
     readonly property var selectedMedia: (state.library || []).find(item => item.id === selected) || null
     function selectMedia(item) {
@@ -57,17 +92,24 @@ Item {
     readonly property string playbackErrors: rendererService.players.map(player => player.errorString ? player.monitorName + ": " + player.errorString : "").filter(text => text !== "").join(" · ")
     property string pendingCommand: ""
     property string folderErrors: ""
+    property string operationError: ""
     property string message: "Add an image or video to get started."
     readonly property string script: decodeURIComponent(Qt.resolvedUrl("scripts/wallpaper-pro.py").toString().replace(/^file:\/\//, ""))
     onStateChanged: {
-        mode.currentIndex = Math.max(0, ["individual", "all", "span"].indexOf(state.mode || "individual"))
-        if (!(state.library || []).some(item => item.id === selected))
-            selected = state.default || ((state.library || [])[0] || {}).id || ""
+        if (!libraryInitialized || ["apply", "off", "unassign"].indexOf(pendingCommand) !== -1)
+            mode.currentIndex = Math.max(0, ["individual", "all", "span"].indexOf(state.mode || "individual"))
+        libraryInitialized = true
+        if (!(state.library || []).some(item => item.id === selected)) {
+            const preferred = filteredLibrary.find(item => item.id === state.default) || filteredLibrary[0]
+            selected = preferred ? preferred.id : ""
+        }
     }
     function open(payload) {
         if (!Quickshell.screens.length) return
         opened = true
+        libraryInitialized = false
         theme.refresh()
+        if (automaticThemeSync) startThemeSync()
         if (!desktopCheck.running) desktopCheck.running = true
         run(["status"])
     }
@@ -88,6 +130,7 @@ Item {
         if (worker.running) return
         pendingCommand = args[0]
         folderErrors = ""
+        operationError = ""
         message = pendingCommand === "import-folder" ? "Scanning folder and subfolders…" : "Working…"
         worker.command = ["python3", script].concat(args)
         worker.running = true
@@ -110,16 +153,16 @@ Item {
                     } else {
                         root.message = "Library ready · " + root.state.library.length + " wallpapers"
                     }
-                } catch (e) { root.message = "Could not read the library response." }
+                } catch (e) { root.operationError = "Could not read the library response." }
             }
         }
-        stderr: StdioCollector { onStreamFinished: { if (text.trim()) root.message = text.trim() } }
-        onExited: function(code, status) { if (code !== 0 && root.message === "Working…") root.message = "Operation failed (" + code + ")" }
+        stderr: StdioCollector { onStreamFinished: { if (text.trim()) root.operationError = text.trim() } }
+        onExited: function(code, status) { if (code !== 0 && !root.operationError) root.operationError = "Operation failed (" + code + ")" }
     }
     FileDialog {
         id: picker
         title: "Add wallpaper"
-        nameFilters: ["Wallpaper media (*.jpg *.jpeg *.png *.webp *.bmp *.avif *.mp4 *.webm *.mkv *.mov *.m4v)"]
+        nameFilters: ["Wallpaper media (*.jpg *.jpeg *.png *.webp *.bmp *.avif *.mp4 *.webm *.mkv *.mov *.m4v *.gif)"]
         onAccepted: root.run(["import", selectedFile.toString()])
     }
     FolderDialog {
@@ -201,7 +244,7 @@ Item {
                                     required property int index
                                     required property string modelData
                                     Layout.fillWidth: true
-                                    text: ["▦   ", "▶   ", "▣   ", "↔   ", "↓   "][index] + modelData
+                                    text: ["▦   ", "▶   ", "▣   ", "↔   ", "↓   ", "◈   "][index] + modelData
                                     navigation: true
                                     checked: root.librarySection === index
                                     onClicked: root.librarySection = index
@@ -232,7 +275,7 @@ Item {
                                     }
                                 }
                             }
-                            ProButton { text: "Use Omarchy wallpaper"; quiet: true; Layout.fillWidth: true; Layout.topMargin: 14; enabled: !worker.running; onClicked: root.run(["off"]) }
+                    ProButton { text: "Use Omarchy wallpaper"; quiet: true; Layout.fillWidth: true; Layout.topMargin: 14; enabled: !worker.running; onClicked: root.run(["off"]) }
                         }
                     }
                     Item {
@@ -265,7 +308,7 @@ Item {
                             onTextEdited: root.searchQuery = text }
                             }
                             Rectangle {
-                                visible: worker.running || root.folderErrors !== "" || root.playbackErrors !== "" || root.compatibilityWarning !== "" || root.pendingCommand === "import-folder"
+                                visible: root.operationError !== "" || root.themeSyncError !== "" || themeSync.running || worker.running || root.folderErrors !== "" || root.playbackErrors !== "" || root.compatibilityWarning !== "" || root.pendingCommand === "import-folder"
                                 Layout.fillWidth: true
                                 implicitHeight: notice.implicitHeight + 24
                                 radius: 10
@@ -274,8 +317,8 @@ Item {
                                     id: notice
                                     anchors.fill: parent
                                     anchors.margins: 12
-                                    text: root.folderErrors || root.playbackErrors || root.compatibilityWarning || root.message
-                                    color: root.folderErrors || root.playbackErrors ? theme.colors.red : theme.secondary
+                                    text: root.operationError || root.folderErrors || root.playbackErrors || root.compatibilityWarning || root.themeSyncError || (themeSync.running && !worker.running ? root.themeSyncMessage : root.message)
+                                    color: root.operationError || root.folderErrors || root.playbackErrors ? theme.colors.red : theme.secondary
                                     wrapMode: Text.Wrap
                                     maximumLineCount: 3
                                     elide: Text.ElideRight
@@ -339,10 +382,10 @@ Item {
                                                 }
                                                 Label { anchors.centerIn: parent; visible: preview.source.toString() === "" || preview.status === Image.Error; text: "Preview unavailable"; color: theme.secondary; font.pixelSize: 12 }
                                                 Rectangle {
-                                                    visible: card.modelData.kind === "video"
+                                                    visible: card.modelData.kind === "video" || (card.modelData.themes || []).length > 0
                                                     x: 8; y: 8; width: 49; height: 22; radius: 6
                                                     color: "#a0101318"
-                                                    Text { anchors.centerIn: parent; text: "▶ LIVE"; color: "white"; font.pixelSize: 9; font.weight: Font.DemiBold }
+                                                    Text { anchors.centerIn: parent; text: card.modelData.kind === "video" ? "▶ LIVE" : "THEME"; color: "white"; font.pixelSize: 9; font.weight: Font.DemiBold }
                                                 }
                                                 Rectangle {
                                                     visible: root.selected === card.modelData.id
@@ -457,9 +500,10 @@ Item {
                     ProCheck { text: "Pause behind fullscreen apps"; checked: root.state.pauseOnFullscreen !== false; enabled: !worker.running; onClicked: root.run(["fullscreen", checked ? "on" : "off"]) }
                     Label { text: "Videos loop silently. Panoramic video uses drift correction and is not frame locked."; color: theme.secondary; font.pixelSize: 11; wrapMode: Text.Wrap; Layout.fillWidth: true; Layout.bottomMargin: 10 }
                     Rectangle { Layout.fillWidth: true; height: 1; color: root.divider }
+                    ProButton { text: "Sync theme wallpapers"; quiet: true; Layout.fillWidth: true; enabled: !themeSync.running; onClicked: root.startThemeSync() }
                     ProButton { text: "Use Omarchy wallpaper"; quiet: true; Layout.fillWidth: true; enabled: !worker.running; onClicked: root.run(["off"]) }
                     ProButton { text: "Clear this monitor"; quiet: true; Layout.fillWidth: true; enabled: mode.currentIndex === 0 && !worker.running; onClicked: root.run(["unassign", monitor.currentText]) }
-                    ProButton { text: "Remove selected wallpaper"; quiet: true; Layout.fillWidth: true; enabled: root.selectedMedia !== null && !root.selectedMedia.bundled && !worker.running; onClicked: root.run(["remove", root.selected]) }
+                    ProButton { text: "Remove selected wallpaper"; quiet: true; Layout.fillWidth: true; enabled: root.selectedMedia !== null && !root.selectedMedia.bundled && !root.selectedMedia.themeManaged && !worker.running; onClicked: root.run(["remove", root.selected]) }
                 }
             }
         }

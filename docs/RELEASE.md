@@ -23,6 +23,14 @@
 
 The marketplace's maintainers approve listings. A valid manifest alone does not mean approval or runtime correctness.
 
+## Theme discovery verification
+
+- [x] Scan stock themes, user themes, additional theme backgrounds, nested folders, and linked theme directories.
+- [x] Deduplicate identical media, generate thumbnails, and reuse unchanged metadata without decoding or rewriting checkpoints.
+- [x] Merge against the latest settings to preserve active wallpapers, assignments, and personal imports.
+- [x] Verify startup discovery and a newly installed theme appearing in the Themes category through the actual QML/background-process pipeline.
+- [x] Development-machine scan: 1,023 files, 1,020 unique theme wallpapers, no failures. Cached follow-up scan: approximately 0.15 seconds.
+
 ## Next milestones
 
 - Frame-locked panoramic video. A shared timeline with periodic drift correction is implemented; it is not frame locked.
