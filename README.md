@@ -13,6 +13,7 @@ An Omarchy shell plugin for a personal image and live wallpaper collection.
 - Automatically discover installed Omarchy theme wallpapers and generate their thumbnails.
 - Browse installed themes ordered by their accent hue, with a matching color swatch, color-family label, and Light/Dark mode badge; search and apply themes in place, inspect the current background, and cycle backgrounds from the in-app Themes & appearance page.
 - Inspect connected monitor identity, serial number, physical size, active mode, position, scale, transform, variable-refresh support, and supported modes from the Monitor control page. Configure resolution/refresh, logical placement, and scale; set hardware brightness on displays exposing DDC/CI brightness. Applying monitor settings backs up Omarchy's `~/.config/hypr/monitors.lua` and reloads Hyprland.
+- Arrange proportional virtual monitors by dragging them in the layout map. Each monitor previews its currently assigned wallpaper thumbnail; panoramic span mode previews the image across the complete monitor arrangement.
 - Import local images and videos through a file picker, with automatically generated thumbnail images.
 - Add a folder to recursively import supported images and videos from every subfolder, with progress and duplicate detection.
 - Download direct HTTP/HTTPS media links into a private local collection.

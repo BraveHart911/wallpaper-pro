@@ -158,6 +158,7 @@ Item {
     property var monitors: []
     property var monitorPositions: ({})
     property var monitorMapBounds: ({minX: -200, maxX: 200, minY: -200, maxY: 200})
+    property var monitorArrangementBounds: ({minX: 0, maxX: 0, minY: 0, maxY: 0})
     property var monitorArgs: []
     property bool monitorApplying: false
     property string monitorError: ""
@@ -293,7 +294,7 @@ Item {
     }
     function rebuildMonitorMapBounds() {
         if (!monitors.length) return
-        let minX = 0, minY = 0, maxX = 0, maxY = 0
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
         monitors.forEach(item => {
             const x = monitorPositionX(item.name), y = monitorPositionY(item.name)
             const logicalWidth = item.width / Math.max(0.5, item.scale || 1)
@@ -301,6 +302,7 @@ Item {
             minX = Math.min(minX, x); minY = Math.min(minY, y)
             maxX = Math.max(maxX, x + logicalWidth); maxY = Math.max(maxY, y + logicalHeight)
         })
+        monitorArrangementBounds = {minX: minX, minY: minY, maxX: maxX, maxY: maxY}
         monitorMapBounds = {minX: minX - 180, minY: minY - 140, maxX: maxX + 180, maxY: maxY + 140}
     }
     function applyMonitor(name, modeValue, x, y, scale, brightness) {
@@ -335,6 +337,23 @@ Item {
         const id = state.mode === "individual" ? (state.assignments || {})[name] : state.default
         const media = (state.library || []).find(item => item.id === id)
         return media ? displayName(media) : "Omarchy wallpaper"
+    }
+    function monitorMedia(name) {
+        const library = state.library || []
+        if (state.enabled) {
+            const id = state.mode === "individual" ? (state.assignments || {})[name] : state.default
+            return library.find(item => item.id === id) || null
+        }
+        const background = String(currentBackground || "").trim().toLowerCase().replace(/\s+/g, " ")
+        return background ? library.find(item => (item.themeManaged || (item.themes || []).length) && displayName(item).toLowerCase().replace(/\s+/g, " ") === background) || null : null
+    }
+    function monitorWallpaperName(name) {
+        const media = monitorMedia(name)
+        return media ? (media.kind === "video" ? "LIVE · " : "") + displayName(media) : (!state.enabled && currentBackground ? "Theme · " + currentBackground : "Omarchy wallpaper")
+    }
+    function monitorWallpaperSource(name) {
+        const media = monitorMedia(name)
+        return media ? media.thumbnailUrl || (media.kind === "image" ? media.url : "") : ""
     }
     function run(args) {
         if (worker.running) return
@@ -918,6 +937,21 @@ Item {
                                                             (height - 28) / Math.max(1, root.monitorMapBounds.maxY - root.monitorMapBounds.minY)))
                                                         readonly property real mapOffsetX: (width - (root.monitorMapBounds.maxX - root.monitorMapBounds.minX) * mapScale) / 2
                                                         readonly property real mapOffsetY: (height - (root.monitorMapBounds.maxY - root.monitorMapBounds.minY) * mapScale) / 2
+                                                        Image {
+                                                            id: spanningWallpaperPreview
+                                                            readonly property var media: root.monitors.length ? root.monitorMedia(root.monitors[0].name) : null
+                                                            readonly property real layoutWidth: Math.max(1, root.monitorArrangementBounds.maxX - root.monitorArrangementBounds.minX) * monitorMap.mapScale
+                                                            readonly property real layoutHeight: Math.max(1, root.monitorArrangementBounds.maxY - root.monitorArrangementBounds.minY) * monitorMap.mapScale
+                                                            readonly property real mediaAspect: media && media.width && media.height ? media.width / media.height : 1
+                                                            visible: root.state.enabled && root.state.mode === "span" && !!media
+                                                            source: visible ? root.monitorWallpaperSource(root.monitors[0].name) : ""
+                                                            x: monitorMap.mapOffsetX + (root.monitorArrangementBounds.minX - root.monitorMapBounds.minX) * monitorMap.mapScale + (layoutWidth - width) / 2
+                                                            y: monitorMap.mapOffsetY + (root.monitorArrangementBounds.minY - root.monitorMapBounds.minY) * monitorMap.mapScale + (layoutHeight - height) / 2
+                                                            width: Math.max(layoutWidth, layoutHeight * mediaAspect)
+                                                            height: Math.max(layoutHeight, layoutWidth / mediaAspect)
+                                                            fillMode: Image.PreserveAspectCrop
+                                                            asynchronous: true
+                                                        }
                                                         Repeater {
                                                             model: root.monitors
                                                             delegate: Rectangle {
@@ -930,15 +964,33 @@ Item {
                                                                 width: modelData.width / Math.max(0.5, modelData.scale || 1) * monitorMap.mapScale
                                                                 height: modelData.height / Math.max(0.5, modelData.scale || 1) * monitorMap.mapScale
                                                                 radius: 9
-                                                                color: Qt.tint(root.surface, Qt.rgba(0.04,0.52,1,0.24))
+                                                                clip: true
+                                                                color: root.state.enabled && root.state.mode === "span" ? "transparent" : Qt.tint(root.surface, Qt.rgba(0.04,0.52,1,0.24))
                                                                 border.width: modelData.focused ? 2 : 1
                                                                 border.color: modelData.focused ? (theme.colors.accent || "#0a84ff") : Qt.rgba(0.4,0.65,0.9,0.5)
+                                                                Image {
+                                                                    anchors.fill: parent
+                                                                    anchors.margins: 1
+                                                                    visible: root.state.mode !== "span" && status === Image.Ready
+                                                                    source: root.monitorWallpaperSource(mapMonitor.modelData.name)
+                                                                    fillMode: Image.PreserveAspectCrop
+                                                                    asynchronous: true
+                                                                }
+                                                                Rectangle {
+                                                                    anchors.fill: parent
+                                                                    anchors.margins: 1
+                                                                    radius: 8
+                                                                    color: Qt.rgba(0.015,0.035,0.055,0.46)
+                                                                }
                                                                 Column {
                                                                     anchors.centerIn: parent
-                                                                    spacing: 3
+                                                                    width: Math.max(70, parent.width - 16)
+                                                                    spacing: 4
                                                                     Label { anchors.horizontalCenter: parent.horizontalCenter; text: mapMonitor.modelData.name; color: theme.colors.foreground; font.pixelSize: 13; font.weight: Font.DemiBold }
                                                                     Label { anchors.horizontalCenter: parent.horizontalCenter; text: Math.round(root.monitorPositionX(mapMonitor.modelData.name)) + " × " + Math.round(root.monitorPositionY(mapMonitor.modelData.name)); color: theme.secondary; font.pixelSize: 10 }
+                                                                    Label { anchors.horizontalCenter: parent.horizontalCenter; width: parent.width; text: root.monitorWallpaperName(mapMonitor.modelData.name); color: theme.colors.foreground; font.pixelSize: 10; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight; maximumLineCount: 1 }
                                                                 }
+                                                                Accessible.name: mapMonitor.modelData.name + " at " + root.monitorPositionX(mapMonitor.modelData.name) + " by " + root.monitorPositionY(mapMonitor.modelData.name) + ", showing " + root.monitorWallpaperName(mapMonitor.modelData.name)
                                                                 DragHandler {
                                                                     id: monitorDrag
                                                                     target: null
