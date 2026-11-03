@@ -3,6 +3,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
+import QtMultimedia
 import Quickshell
 import Quickshell.Io
 import "ui"
@@ -126,6 +127,8 @@ Item {
     property string themeSearch: ""
     property string pendingTheme: ""
     property bool themeApplying: false
+    property string previewId: ""
+    property var previewOutput: null
     readonly property bool compact: panel.width < 900
     readonly property bool dark: (Qt.color(theme.colors.background).r + Qt.color(theme.colors.background).g + Qt.color(theme.colors.background).b) < 1.5
     readonly property color surface: Qt.tint(theme.colors.background, Qt.rgba(0.5, 0.5, 0.5, 0.07))
@@ -150,7 +153,7 @@ Item {
         const haystack = [item.name || "", (item.themes || []).join(" "), item.contextGroup || "", item.colorName || ""].join(" ").toLowerCase()
         return terms.every(term => haystack.indexOf(term) !== -1)
     }
-    onLibrarySectionChanged: selected = ""
+    onLibrarySectionChanged: { selected = ""; stopPreview(previewId) }
     readonly property var filteredLibrary: Library.ordered((state.library || []).filter(item => {
         const layout = item.layout || ((item.width || 0) / (item.height || 1) >= 2.7 ? "panoramic" : "single")
         const matchesSection = librarySection === 0 || (librarySection === 1 && item.kind === "video") || (librarySection === 2 && layout === "single") || (librarySection === 3 && layout === "panoramic") || (librarySection === 4 && !item.bundled && !item.themeManaged) || (librarySection === 5 && (item.themes || []).length > 0)
@@ -160,6 +163,30 @@ Item {
     function selectMedia(item) {
         selected = item.id
         mode.currentIndex = item.layout === "panoramic" ? 2 : 0
+    }
+    function startPreview(media, output) {
+        if (librarySection !== 1 || media.kind !== "video") return
+        previewId = media.id
+        previewOutput = output
+        previewPlayer.videoOutput = output
+        if (previewPlayer.source.toString() !== media.url) {
+            previewPlayer.stop()
+            previewPlayer.source = media.url
+        }
+        previewPlayer.play()
+    }
+    function stopPreview(id) {
+        if (!id || previewId !== id) return
+        previewPlayer.stop()
+        previewPlayer.source = ""
+        previewPlayer.videoOutput = null
+        previewOutput = null
+        previewId = ""
+    }
+    MediaPlayer {
+        id: previewPlayer
+        loops: MediaPlayer.Infinite
+        audioOutput: AudioOutput { muted: true; volume: 0 }
     }
     readonly property string playbackErrors: rendererService.players.map(player => player.errorString ? player.monitorName + ": " + player.errorString : "").filter(text => text !== "").join(" · ")
     property string pendingCommand: ""
@@ -206,6 +233,7 @@ Item {
     function close() {
         if (!opened) return
         opened = false
+        stopPreview(previewId)
         if (shell && typeof shell.hide === "function") shell.hide("bravehart911.wallpaper-pro")
     }
     function assignment(name) {
@@ -491,17 +519,24 @@ Item {
                                                 Image {
                                                     id: preview
                                                     anchors.fill: parent
+                                                    visible: root.previewId !== card.modelData.id
                                                     source: card.modelData.thumbnailUrl || (card.modelData.kind === "image" ? card.modelData.url : "")
                                                     fillMode: Image.PreserveAspectCrop
                                                     asynchronous: true
                                                     sourceSize.width: 600
                                                 }
+                                                VideoOutput {
+                                                    id: livePreview
+                                                    anchors.fill: parent
+                                                    visible: root.previewId === card.modelData.id
+                                                    fillMode: VideoOutput.PreserveAspectCrop
+                                                }
                                                 Label { anchors.centerIn: parent; visible: preview.source.toString() === "" || preview.status === Image.Error; text: "Preview unavailable"; color: theme.secondary; font.pixelSize: 12 }
                                                 Rectangle {
                                                     visible: card.modelData.kind === "video" || (card.modelData.themes || []).length > 0
-                                                    x: 8; y: 8; width: 49; height: 22; radius: 6
+                                                    x: 8; y: 8; width: root.previewId === card.modelData.id ? 76 : 49; height: 22; radius: 6
                                                     color: "#a0101318"
-                                                    Text { anchors.centerIn: parent; text: card.modelData.kind === "video" ? "▶ LIVE" : "THEME"; color: "white"; font.pixelSize: 9; font.weight: Font.DemiBold }
+                                                    Text { anchors.centerIn: parent; text: card.modelData.kind === "video" ? (root.previewId === card.modelData.id ? "▶ PREVIEW" : "▶ LIVE") : "THEME"; color: "white"; font.pixelSize: 9; font.weight: Font.DemiBold }
                                                 }
                                                 Rectangle {
                                                     visible: root.selected === card.modelData.id
@@ -529,6 +564,8 @@ Item {
                                                 anchors.fill: parent
                                                 hoverEnabled: true
                                                 cursorShape: Qt.PointingHandCursor
+                                                onEntered: if (root.librarySection === 1 && card.modelData.kind === "video") root.startPreview(card.modelData, livePreview)
+                                                onExited: root.stopPreview(card.modelData.id)
                                                 onClicked: { gallery.currentIndex = card.index; gallery.forceActiveFocus(); root.selectMedia(card.modelData) }
                                                 onDoubleClicked: if (!worker.running) root.run(["apply", card.modelData.id, "--mode", card.modelData.layout === "panoramic" ? "span" : "individual", "--monitor", monitor.currentText])
                                             }

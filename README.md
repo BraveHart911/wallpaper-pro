@@ -2,7 +2,7 @@
 
 An Omarchy shell plugin for a personal image and live wallpaper collection.
 
-**Early development · 0.9.0-alpha.6.** This is a working foundation, not a marketplace release yet.
+**Early development · 0.9.0-alpha.7.** This is a working foundation, not a marketplace release yet.
 
 ## Current features
 
@@ -16,6 +16,7 @@ An Omarchy shell plugin for a personal image and live wallpaper collection.
 - Assign a different image or looping, muted video to each monitor.
 - Repeat one image or video on all connected monitors.
 - Span a panoramic image or video across the desktop's logical monitor layout.
+- Preview live wallpapers on hover in the Live wallpapers section; previews loop silently and stop when the pointer leaves the card.
 - Pause video on battery power and behind fullscreen apps (per monitor).
 - Follow Omarchy’s colors and open the manager as a normal tiled Hyprland application window.
 - Turn off Wallpaper Pro to reveal the wallpaper underneath.
