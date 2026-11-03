@@ -130,6 +130,7 @@ Item {
     property string previewId: ""
     property var previewOutput: null
     readonly property bool compact: panel.width < 900
+    readonly property bool inlineLiveSelector: panel.width >= 1180
     readonly property bool dark: (Qt.color(theme.colors.background).r + Qt.color(theme.colors.background).g + Qt.color(theme.colors.background).b) < 1.5
     readonly property color surface: Qt.tint(theme.colors.background, Qt.rgba(0.5, 0.5, 0.5, 0.07))
     readonly property color divider: Qt.rgba(0.5, 0.5, 0.5, 0.15)
@@ -379,6 +380,8 @@ Item {
                                     onClicked: root.librarySection = index
                                 }
                             }
+                            Rectangle { Layout.fillWidth: true; Layout.topMargin: 6; Layout.bottomMargin: 2; height: 1; color: root.divider }
+                            Label { text: "THEME CONTROLS"; color: theme.secondary; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.2; Layout.leftMargin: 12; Layout.bottomMargin: 2 }
                             ProButton {
                                 Layout.fillWidth: true
                                 text: "Themes & appearance"
@@ -434,7 +437,7 @@ Item {
                                 }
                                 Item { Layout.fillWidth: true }
                                 ProSegmented {
-                                    visible: root.librarySection === 1 && !root.compact
+                                visible: root.librarySection === 1 && root.inlineLiveSelector
                                     Layout.preferredWidth: 264
                                     options: ["All live", "Dual monitor"]
                                     selectedIndex: root.liveDualOnly ? 1 : 0
@@ -461,7 +464,7 @@ Item {
                             onTextEdited: root.searchQuery = text }
                             }
                             RowLayout {
-                                visible: root.librarySection === 1 && root.compact
+                                visible: root.librarySection === 1 && !root.inlineLiveSelector
                                 Layout.fillWidth: true
                                 ProSegmented {
                                     Layout.alignment: Qt.AlignHCenter
@@ -511,7 +514,7 @@ Item {
                                     Keys.onReturnPressed: if (currentItem) root.selectMedia(currentItem.modelData)
                                     Keys.onSpacePressed: if (currentItem) root.selectMedia(currentItem.modelData)
                                     cellWidth: width / Math.max(1, Math.floor(width / 240))
-                                    cellHeight: (cellWidth - 18) * 9 / 16 + 74
+                                    cellHeight: (cellWidth - 18) * 9 / 16 + 92
                                     delegate: Item {
                                         id: card
                                         required property var modelData
@@ -551,7 +554,7 @@ Item {
                                                     anchors.fill: parent
                                                     visible: root.previewId !== card.modelData.id
                                                     source: card.modelData.thumbnailUrl || (card.modelData.kind === "image" ? card.modelData.url : "")
-                                                    fillMode: Image.PreserveAspectCrop
+                                                    fillMode: card.modelData.layout === "panoramic" ? Image.PreserveAspectFit : Image.PreserveAspectCrop
                                                     asynchronous: true
                                                     sourceSize.width: 600
                                                 }
@@ -559,20 +562,21 @@ Item {
                                                     id: livePreview
                                                     anchors.fill: parent
                                                     visible: root.previewId === card.modelData.id
-                                                    fillMode: VideoOutput.PreserveAspectCrop
+                                                    fillMode: card.modelData.layout === "panoramic" ? VideoOutput.PreserveAspectFit : VideoOutput.PreserveAspectCrop
                                                 }
                                                 Label { anchors.centerIn: parent; visible: preview.source.toString() === "" || preview.status === Image.Error; text: "Preview unavailable"; color: theme.secondary; font.pixelSize: 12 }
                                                 Rectangle {
-                                                    visible: card.modelData.kind === "video" || (card.modelData.themes || []).length > 0
-                                                    x: 8; y: 8; width: root.previewId === card.modelData.id ? 76 : 49; height: 22; radius: 6
+                                                    id: mediaBadge
+                                                    visible: true
+                                                    x: 8; y: 8; width: badgeText.implicitWidth + 16; height: 22; radius: 6
                                                     color: "#a0101318"
-                                                    Text { anchors.centerIn: parent; text: card.modelData.kind === "video" ? (root.previewId === card.modelData.id ? "▶ PREVIEW" : "▶ LIVE") : "THEME"; color: "white"; font.pixelSize: 9; font.weight: Font.DemiBold }
+                                                    Text { id: badgeText; anchors.centerIn: parent; text: card.modelData.kind === "video" ? (root.previewId === card.modelData.id ? "▶ PREVIEW · " : "▶ LIVE · ") + (card.modelData.layout === "panoramic" ? "DUAL" : "SINGLE") : card.modelData.layout === "panoramic" ? "DUAL PANORAMA" : "SINGLE MONITOR"; color: "white"; font.pixelSize: 8; font.weight: Font.DemiBold }
                                                 }
                                             }
                                             ColumnLayout {
                                                 anchors { left: parent.left; right: parent.right; top: picture.bottom; margins: 10; topMargin: 9; rightMargin: 24 }
                                                 spacing: 3
-                                                Label { text: root.displayName(card.modelData); font.pixelSize: 12; font.weight: Font.Medium; color: theme.colors.foreground; elide: Text.ElideRight; Layout.fillWidth: true }
+                                                Label { text: root.displayName(card.modelData); font.pixelSize: 12; font.weight: Font.Medium; color: theme.colors.foreground; wrapMode: Text.Wrap; maximumLineCount: 2; elide: Text.ElideRight; Layout.fillWidth: true }
                                                 Label { text: root.mediaSubtitle(card.modelData); font.pixelSize: 10; color: theme.secondary; elide: Text.ElideRight; Layout.fillWidth: true }
                                             }
                                             Rectangle {
@@ -599,7 +603,7 @@ Item {
                                                 height: 30
                                                 radius: 15
                                                 z: 2
-                                                visible: card.favorite || cardMouse.containsMouse
+                                                visible: card.favorite || cardMouse.containsMouse || gallery.currentIndex === card.index
                                                 color: card.favorite ? Qt.rgba(0.70, 0.15, 0.25, 0.92) : Qt.rgba(0.03, 0.05, 0.07, 0.72)
                                                 border.color: Qt.rgba(1, 1, 1, 0.28)
                                                 Accessible.role: Accessible.Button
@@ -747,18 +751,18 @@ Item {
                 Rectangle {
                     visible: root.librarySection !== 7
                     Layout.fillWidth: true
-                    implicitHeight: root.compact ? 120 : 88
+                    implicitHeight: root.compact ? 104 : 80
                     color: root.surface
                     Rectangle { width: parent.width; height: 1; color: root.divider }
                     ColumnLayout {
                         anchors.fill: parent
-                        anchors.margins: root.compact ? 16 : 20
-                        spacing: 10
+                        anchors.margins: root.compact ? 12 : 16
+                        spacing: root.compact ? 6 : 8
                         Label { visible: root.compact; text: root.displayName(root.selectedMedia); color: theme.colors.foreground; font.pixelSize: 13; font.weight: Font.Medium; elide: Text.ElideRight; Layout.fillWidth: true }
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 12
-                            Image { visible: !root.compact; Layout.preferredWidth: 68; Layout.preferredHeight: 42; source: root.selectedMedia ? root.selectedMedia.thumbnailUrl || (root.selectedMedia.kind === "image" ? root.selectedMedia.url : "") : ""; fillMode: Image.PreserveAspectCrop; asynchronous: true }
+                            Image { visible: !root.compact; Layout.preferredWidth: 52; Layout.preferredHeight: 32; source: root.selectedMedia ? root.selectedMedia.thumbnailUrl || (root.selectedMedia.kind === "image" ? root.selectedMedia.url : "") : ""; fillMode: root.selectedMedia && root.selectedMedia.layout === "panoramic" ? Image.PreserveAspectFit : Image.PreserveAspectCrop; asynchronous: true }
                             ColumnLayout {
                                 visible: !root.compact
                                 Layout.fillWidth: true
