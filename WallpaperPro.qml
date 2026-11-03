@@ -1160,8 +1160,15 @@ Item {
                                                                         from: 0; to: 100
                                                                         value: monitorCard.modelData.brightness.value * 100 / Math.max(1, monitorCard.modelData.brightness.maximum || 100)
                                                                         stepSize: 1
+                                                                        property bool userDragging: false
                                                                         onMoved: root.queueMonitorBrightness(monitorCard.modelData.name, value, pressed)
-                                                                        onPressedChanged: if (!pressed) root.queueMonitorBrightness(monitorCard.modelData.name, value, false)
+                                                                        onPressedChanged: {
+                                                                            if (pressed) userDragging = true
+                                                                            else if (userDragging) {
+                                                                                userDragging = false
+                                                                                root.queueMonitorBrightness(monitorCard.modelData.name, value, false)
+                                                                            }
+                                                                        }
                                                                         Accessible.name: "Hardware brightness for " + monitorCard.modelData.name
                                                                     }
                                                                     Label { text: root.monitorBrightnessApplying && root.monitorBrightnessTarget === monitorCard.modelData.name ? "…" : Math.round(monitorBrightness.value) + "%"; color: theme.secondary; font.pixelSize: 11; Layout.preferredWidth: 34 }

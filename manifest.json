@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "bravehart911.wallpaper-pro",
   "name": "Wallpaper Pro",
-  "version": "0.9.0-alpha.17",
+  "version": "0.9.0-alpha.18",
   "author": "BraveHart911",
   "description": "A searchable image and live wallpaper library with multi-monitor playback, in-app theme controls, and detailed monitor layout and display controls.",
   "kinds": [
