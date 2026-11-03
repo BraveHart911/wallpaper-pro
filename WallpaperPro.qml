@@ -134,7 +134,7 @@ Item {
     readonly property bool dark: (Qt.color(theme.colors.background).r + Qt.color(theme.colors.background).g + Qt.color(theme.colors.background).b) < 1.5
     readonly property color surface: Qt.tint(theme.colors.background, Qt.rgba(0.5, 0.5, 0.5, 0.07))
     readonly property color divider: Qt.rgba(0.5, 0.5, 0.5, 0.15)
-    readonly property var sections: ["All wallpapers", "Live wallpapers", "Single monitor", "Dual panorama", "My imports", "Favorites", "Themes"]
+    readonly property var sections: ["All wallpapers", "Live wallpapers", "Single monitor", "Dual panorama", "My imports", "Favorites", "Theme wallpapers"]
     function displayName(media) {
         if (!media) return "Choose a wallpaper"
         const title = String(media.name || "").replace(/\.(jpg|jpeg|png|webp|bmp|avif|mp4|webm|mkv|mov|m4v|gif)$/i, "").replace(/[._ -]+\d{3,5}[x×]\d{3,5}$/i, "").replace(/[-_]+/g, " ")
