@@ -81,7 +81,14 @@ Item {
         command: ["python3", root.script, "monitor-catalog"]
         stdout: StdioCollector {
             onStreamFinished: {
-                try { root.monitors = JSON.parse(text).monitors || []; root.monitorError = "" }
+                try {
+                    root.monitors = JSON.parse(text).monitors || []
+                    const positions = {}
+                    root.monitors.forEach(item => positions[item.name] = {x: item.x, y: item.y})
+                    root.monitorPositions = positions
+                    root.rebuildMonitorMapBounds()
+                    root.monitorError = ""
+                }
                 catch (e) { root.monitorError = "Could not read connected display information." }
             }
         }
@@ -149,6 +156,8 @@ Item {
     property string currentThemeMode: "unknown"
     property string currentBackground: ""
     property var monitors: []
+    property var monitorPositions: ({})
+    property var monitorMapBounds: ({minX: -200, maxX: 200, minY: -200, maxY: 200})
     property var monitorArgs: []
     property bool monitorApplying: false
     property string monitorError: ""
@@ -266,6 +275,33 @@ Item {
     function refreshMonitors() {
         monitorMessage = ""
         if (!monitorCatalogProcess.running) monitorCatalogProcess.running = true
+    }
+    function monitorPositionX(name) {
+        const position = monitorPositions[name]
+        const monitorInfo = monitors.find(item => item.name === name)
+        return position ? position.x : monitorInfo ? monitorInfo.x : 0
+    }
+    function monitorPositionY(name) {
+        const position = monitorPositions[name]
+        const monitorInfo = monitors.find(item => item.name === name)
+        return position ? position.y : monitorInfo ? monitorInfo.y : 0
+    }
+    function setMonitorPosition(name, x, y) {
+        const next = Object.assign({}, monitorPositions)
+        next[name] = {x: Math.max(-20000, Math.min(20000, Math.round(x))), y: Math.max(-20000, Math.min(20000, Math.round(y)))}
+        monitorPositions = next
+    }
+    function rebuildMonitorMapBounds() {
+        if (!monitors.length) return
+        let minX = 0, minY = 0, maxX = 0, maxY = 0
+        monitors.forEach(item => {
+            const x = monitorPositionX(item.name), y = monitorPositionY(item.name)
+            const logicalWidth = item.width / Math.max(0.5, item.scale || 1)
+            const logicalHeight = item.height / Math.max(0.5, item.scale || 1)
+            minX = Math.min(minX, x); minY = Math.min(minY, y)
+            maxX = Math.max(maxX, x + logicalWidth); maxY = Math.max(maxY, y + logicalHeight)
+        })
+        monitorMapBounds = {minX: minX - 180, minY: minY - 140, maxX: maxX + 180, maxY: maxY + 140}
     }
     function applyMonitor(name, modeValue, x, y, scale, brightness) {
         if (monitorApplying) return
@@ -853,6 +889,75 @@ Item {
                                             width: Math.min(monitorScroll.availableWidth, 1080)
                                             x: Math.max(0, (monitorScroll.availableWidth - width) / 2)
                                             spacing: 12
+                                            Rectangle {
+                                                Layout.fillWidth: true
+                                                Layout.preferredHeight: 278
+                                                radius: 13
+                                                color: root.surface
+                                                border.color: root.divider
+                                                ColumnLayout {
+                                                    anchors.fill: parent
+                                                    anchors.margins: 14
+                                                    spacing: 8
+                                                    RowLayout {
+                                                        Layout.fillWidth: true
+                                                        ColumnLayout {
+                                                            Layout.fillWidth: true
+                                                            spacing: 2
+                                                            Label { text: "Arrange your displays"; color: theme.colors.foreground; font.pixelSize: 14; font.weight: Font.DemiBold }
+                                                            Label { text: "Drag a monitor to change its position · coordinates are logical pixels"; color: theme.secondary; font.pixelSize: 11; wrapMode: Text.Wrap }
+                                                        }
+                                                        Label { text: "ORIGIN  0 × 0"; color: theme.secondary; font.pixelSize: 9; font.letterSpacing: 0.5 }
+                                                    }
+                                                    Item {
+                                                        id: monitorMap
+                                                        Layout.fillWidth: true
+                                                        Layout.fillHeight: true
+                                                        readonly property real mapScale: Math.max(0.02, Math.min(0.34,
+                                                            (width - 28) / Math.max(1, root.monitorMapBounds.maxX - root.monitorMapBounds.minX),
+                                                            (height - 28) / Math.max(1, root.monitorMapBounds.maxY - root.monitorMapBounds.minY)))
+                                                        readonly property real mapOffsetX: (width - (root.monitorMapBounds.maxX - root.monitorMapBounds.minX) * mapScale) / 2
+                                                        readonly property real mapOffsetY: (height - (root.monitorMapBounds.maxY - root.monitorMapBounds.minY) * mapScale) / 2
+                                                        Repeater {
+                                                            model: root.monitors
+                                                            delegate: Rectangle {
+                                                                id: mapMonitor
+                                                                required property var modelData
+                                                                property real dragOriginX: 0
+                                                                property real dragOriginY: 0
+                                                                x: monitorMap.mapOffsetX + (root.monitorPositionX(modelData.name) - root.monitorMapBounds.minX) * monitorMap.mapScale
+                                                                y: monitorMap.mapOffsetY + (root.monitorPositionY(modelData.name) - root.monitorMapBounds.minY) * monitorMap.mapScale
+                                                                width: modelData.width / Math.max(0.5, modelData.scale || 1) * monitorMap.mapScale
+                                                                height: modelData.height / Math.max(0.5, modelData.scale || 1) * monitorMap.mapScale
+                                                                radius: 9
+                                                                color: Qt.tint(root.surface, Qt.rgba(0.04,0.52,1,0.24))
+                                                                border.width: modelData.focused ? 2 : 1
+                                                                border.color: modelData.focused ? (theme.colors.accent || "#0a84ff") : Qt.rgba(0.4,0.65,0.9,0.5)
+                                                                Column {
+                                                                    anchors.centerIn: parent
+                                                                    spacing: 3
+                                                                    Label { anchors.horizontalCenter: parent.horizontalCenter; text: mapMonitor.modelData.name; color: theme.colors.foreground; font.pixelSize: 13; font.weight: Font.DemiBold }
+                                                                    Label { anchors.horizontalCenter: parent.horizontalCenter; text: Math.round(root.monitorPositionX(mapMonitor.modelData.name)) + " × " + Math.round(root.monitorPositionY(mapMonitor.modelData.name)); color: theme.secondary; font.pixelSize: 10 }
+                                                                }
+                                                                DragHandler {
+                                                                    id: monitorDrag
+                                                                    target: null
+                                                                    onActiveChanged: {
+                                                                        if (active) {
+                                                                            mapMonitor.dragOriginX = root.monitorPositionX(mapMonitor.modelData.name)
+                                                                            mapMonitor.dragOriginY = root.monitorPositionY(mapMonitor.modelData.name)
+                                                                        } else root.rebuildMonitorMapBounds()
+                                                                    }
+                                                                    onTranslationChanged: if (active) root.setMonitorPosition(mapMonitor.modelData.name,
+                                                                        mapMonitor.dragOriginX + translation.x / monitorMap.mapScale,
+                                                                        mapMonitor.dragOriginY + translation.y / monitorMap.mapScale)
+                                                                }
+                                                            }
+                                                        }
+                                                        Label { anchors.centerIn: parent; visible: root.monitors.length === 0; text: "Connect a display to arrange it here"; color: theme.secondary; font.pixelSize: 12 }
+                                                    }
+                                                }
+                                            }
                                             Repeater {
                                                 model: root.monitors
                                                 delegate: Rectangle {
@@ -925,9 +1030,11 @@ Item {
                                                                 Label { text: "Position · logical pixels"; color: theme.colors.foreground; font.pixelSize: 11; font.weight: Font.DemiBold }
                                                                 RowLayout {
                                                                     Layout.fillWidth: true
-                                                                    SpinBox { id: monitorX; Layout.fillWidth: true; from: -20000; to: 20000; value: monitorCard.modelData.x; editable: true; stepSize: 40; Accessible.name: "Monitor horizontal position" }
+                                                                    SpinBox { id: monitorX; Layout.fillWidth: true; from: -20000; to: 20000; editable: true; stepSize: 40; onValueModified: root.setMonitorPosition(monitorCard.modelData.name, value, monitorY.value); Accessible.name: "Monitor horizontal position" }
                                                                     Label { text: "×"; color: theme.secondary }
-                                                                    SpinBox { id: monitorY; Layout.fillWidth: true; from: -20000; to: 20000; value: monitorCard.modelData.y; editable: true; stepSize: 40; Accessible.name: "Monitor vertical position" }
+                                                                    SpinBox { id: monitorY; Layout.fillWidth: true; from: -20000; to: 20000; editable: true; stepSize: 40; onValueModified: root.setMonitorPosition(monitorCard.modelData.name, monitorX.value, value); Accessible.name: "Monitor vertical position" }
+                                                                    Binding { target: monitorX; property: "value"; value: root.monitorPositionX(monitorCard.modelData.name) }
+                                                                    Binding { target: monitorY; property: "value"; value: root.monitorPositionY(monitorCard.modelData.name) }
                                                                 }
                                                             }
                                                             ColumnLayout {
@@ -952,7 +1059,7 @@ Item {
                                                         RowLayout {
                                                             Layout.fillWidth: true
                                                             Label { text: monitorCard.modelData.vrr ? "Variable refresh supported" : "Modes: " + monitorCard.modelData.modes.length; color: theme.secondary; font.pixelSize: 10; Layout.fillWidth: true }
-                                                            ProButton { text: root.monitorApplying ? "Applying…" : "Apply to " + monitorCard.modelData.name; primary: true; enabled: !root.monitorApplying && monitorCard.modelData.modes.length > 0; onClicked: root.applyMonitor(monitorCard.modelData.name, monitorCard.draftMode, monitorX.value, monitorY.value, monitorScale.value / 100, monitorCard.modelData.brightness.available ? Math.round(monitorBrightness.value) : -1) }
+                                                            ProButton { text: root.monitorApplying ? "Applying…" : "Apply to " + monitorCard.modelData.name; primary: true; enabled: !root.monitorApplying && monitorCard.modelData.modes.length > 0; onClicked: root.applyMonitor(monitorCard.modelData.name, monitorCard.draftMode, root.monitorPositionX(monitorCard.modelData.name), root.monitorPositionY(monitorCard.modelData.name), monitorScale.value / 100, monitorCard.modelData.brightness.available ? Math.round(monitorBrightness.value) : -1) }
                                                         }
                                                     }
                                                 }
