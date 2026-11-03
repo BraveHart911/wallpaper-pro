@@ -37,7 +37,7 @@ def main():
     assert not any(surface['namespace'] == 'wallpaper-pro-manager' for monitor in layers.values()
                    for level in monitor['levels'].values() for surface in level), layers
     print('PASS: the manager no longer creates a fixed shell-layer surface', flush=True)
-    subprocess.run(['hyprctl', 'dispatch', 'closewindow', 'address:' + current['address']], check=True, stdout=subprocess.DEVNULL)
+    subprocess.run(['hyprctl', 'dispatch', 'hl.dsp.window.close(' + json.dumps('address:' + current['address']) + ')'], check=True, stdout=subprocess.DEVNULL)
     wait_window(False)
     after = status()
     assert (after['enabled'], after['mode']) == (before['enabled'], before['mode']), after
