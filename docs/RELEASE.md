@@ -10,7 +10,10 @@
 - [ ] Test the actual bar-button click with the selected replacement bar.
 - [ ] Visually verify local file picker, imports, failure messages, and keyboard flow.
 - [x] Test independent image/video assignments, all-monitor video, panoramic video, looping, and off/decoder cleanup on DP-2 and HDMI-A-2. Original settings restored after testing.
-- [ ] Test image spanning with negative positions, mixed scale, rotation, and hotplug.
+- [x] Test empty, negative-position, mixed logical dimensions, and portrait layout calculations.
+- [ ] Verify physical mixed-scale/rotated monitor seams, hotplug, and DPMS sleep/resume.
+- [x] Verify per-monitor fullscreen video pause/resume using a temporary Hyprland window; restore original wallpaper settings and focus.
+- [x] Verify Omarchy palette parsing and read-only competing-renderer diagnostics.
 - [ ] Verify battery pause/resume and CPU/GPU use. H.264 video decoding and panoramic playback passed a short smoke test on DP-2 and HDMI-A-2; both players reported 3958 ms at the four-second sample.
 - [x] Test HTTP failures, redirects, media size limit, and corrupt media (automated local HTTP server and ffprobe checks).
 - [ ] Create a tagged release after integration checks. A cropped screenshot of the actual manager in the two-monitor smoke test is included.

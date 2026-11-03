@@ -48,7 +48,7 @@ def main():
                             '-preset', 'ultrafast', str(video)], check=True)
             subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', str(video), '-frames:v', '1', str(image)], check=True)
             state = app.default()
-            state.update(enabled=True, pauseOnBattery=False,
+            state.update(enabled=True, pauseOnBattery=False, pauseOnFullscreen=False,
                          library=[{'id': 'image', 'kind': 'image', 'path': str(image), 'url': image.as_uri()},
                                   {'id': 'video', 'kind': 'video', 'path': str(video), 'url': video.as_uri()}],
                          assignments={monitors[0]: 'image', monitors[1]: 'video'})

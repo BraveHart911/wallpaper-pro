@@ -27,7 +27,7 @@ def directories():
 
 def default():
     return {'version': 1, 'enabled': False, 'mode': 'individual', 'default': '',
-            'assignments': {}, 'library': [], 'pauseOnBattery': True}
+            'assignments': {}, 'library': [], 'pauseOnBattery': True, 'pauseOnFullscreen': True}
 
 
 def load(path):
@@ -168,6 +168,8 @@ def update(state, args, data):
         state['enabled'] = True
     elif args.command == 'unassign':
         state['assignments'].pop(args.monitor, None)
+    elif args.command == 'fullscreen':
+        state['pauseOnFullscreen'] = args.value == 'on'
     elif args.command == 'battery':
         state['pauseOnBattery'] = args.value == 'on'
     elif args.command == 'off':
@@ -182,13 +184,52 @@ def update(state, args, data):
     return state
 
 
+def competing_wallpapers(layers, monitors):
+    warnings = []
+    monitor_map = {monitor['name']: monitor for monitor in monitors}
+    for name, output in layers.items():
+        monitor = monitor_map.get(name, {})
+        scale = monitor.get('scale', 1) or 1
+        width, height = monitor.get('width', 0) / scale, monitor.get('height', 0) / scale
+        if monitor.get('transform', 0) % 2:
+            width, height = height, width
+        for level in ('0', '1'):
+            for surface in output.get('levels', {}).get(level, []):
+                namespace = surface.get('namespace', '')
+                if namespace in ('wallpaper-pro', 'omarchy-background'):
+                    continue
+                if width and height and surface.get('w', 0) >= width * .8 and surface.get('h', 0) >= height * .8:
+                    warnings.append(name + ': another desktop surface (' + (namespace or 'unnamed') + ') may compete with Wallpaper Pro. Use one live wallpaper renderer per screen.')
+    return warnings
+
+
+def desktop_diagnostics():
+    result = {'hyprland': False, 'omarchy': bool(shutil.which('omarchy')), 'warnings': []}
+    if not shutil.which('hyprctl'):
+        result['warnings'].append('Hyprland is not available in this session.')
+        return result
+    try:
+        def query(name):
+            output = subprocess.run(['hyprctl', name, '-j'], capture_output=True, text=True, timeout=3, check=True)
+            return json.loads(output.stdout)
+        monitors, layers = query('monitors'), query('layers')
+        result['hyprland'] = True
+        result['warnings'] = competing_wallpapers(layers, monitors)
+    except (subprocess.SubprocessError, ValueError, OSError):
+        result['warnings'].append('Could not inspect the Hyprland session. No desktop settings were changed.')
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
     commands.add_parser('status')
+    commands.add_parser('doctor')
     commands.add_parser('off')
     unassign = commands.add_parser('unassign')
     unassign.add_argument('monitor')
+    fullscreen = commands.add_parser('fullscreen')
+    fullscreen.add_argument('value', choices=['on', 'off'])
     battery = commands.add_parser('battery')
     battery.add_argument('value', choices=['on', 'off'])
     imp = commands.add_parser('import')
@@ -200,6 +241,9 @@ def main():
     remove = commands.add_parser('remove')
     remove.add_argument('id')
     args = parser.parse_args()
+    if args.command == 'doctor':
+        print(json.dumps(desktop_diagnostics()))
+        return
     config, data = directories()
     config.mkdir(parents=True, exist_ok=True)
     with (config / '.lock').open('w') as lock:

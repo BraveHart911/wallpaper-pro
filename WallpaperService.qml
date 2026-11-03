@@ -3,6 +3,8 @@ import QtQuick
 import QtMultimedia
 import Quickshell
 import Quickshell.Io
+import Quickshell.Hyprland
+import "js/Desktop.js" as Desktop
 import Quickshell.Wayland
 import Quickshell.Services.UPower
 
@@ -12,11 +14,12 @@ Item {
     property var manifest
     property var config: ({})
     property bool hasSettings: false
+    property bool settingsAvailable: false
     property var players: []
     function playbackStatus() {
         return JSON.stringify({ monitors: Quickshell.screens.map(screen => screen.name), enabled: !!config.enabled, mode: config.mode || "individual", paused: paused,
             players: players.map(player => ({ monitor: player.monitorName, position: player.position,
-                duration: player.duration, mediaStatus: player.mediaStatus, loops: player.loops, state: player.playbackState, error: player.errorString })) })
+                duration: player.duration, mediaStatus: player.mediaStatus, loops: player.loops, state: player.playbackState, suspended: player.suspended, pauseReason: player.pauseReason, error: player.errorString })) })
     }
     IpcHandler {
         target: "wallpaper-pro"
@@ -29,35 +32,38 @@ Item {
         watchChanges: true
         printErrors: false
         onFileChanged: reload()
-        onLoadFailed: if (root.hasSettings) root.config = ({})
-        onLoaded: { root.hasSettings = true; try { root.config = JSON.parse(text()) } catch (e) { console.warn("Wallpaper Pro: invalid settings", e) } }
+        onLoadFailed: { root.settingsAvailable = false; if (root.hasSettings) root.config = ({}) }
+        onLoaded: { root.settingsAvailable = true; root.hasSettings = true; try { root.config = JSON.parse(text()) } catch (e) { console.warn("Wallpaper Pro: invalid settings", e) } }
     }
     // Also handles first use, when no file exists for FileView to watch yet.
-    Timer { interval: 2000; repeat: true; running: true; onTriggered: settings.reload() }
+    Timer { interval: 2000; repeat: true; running: !root.settingsAvailable; onTriggered: settings.reload() }
     function mediaFor(name) {
         if (!config.enabled) return null
         const id = config.mode === "individual" ? (config.assignments || {})[name] : config.default
         return (config.library || []).find(item => item.id === id) || null
     }
     readonly property bool paused: config.pauseOnBattery !== false && UPower.onBattery
-    readonly property string groupId: config.enabled && config.mode !== "individual" ? String(config.default || "") : ""
+    readonly property bool timelinePaused: paused || players.length === 0 || players.every(player => player.suspended)
+    readonly property string groupId: config.enabled && config.mode !== "individual" && (config.library || []).some(item => item.id === config.default && item.kind === "video") ? String(config.default || "") : ""
     property real elapsed: 0
     property real lastTick: Date.now()
+    onTimelinePausedChanged: lastTick = Date.now()
     onGroupIdChanged: { elapsed = 0; lastTick = Date.now() }
     Timer {
         interval: 100
         repeat: true
-        running: root.groupId !== ""
+        running: root.groupId !== "" && !root.timelinePaused
         onTriggered: {
             const now = Date.now()
-            if (!root.paused) root.elapsed += Math.max(0, now - root.lastTick)
+            if (!root.timelinePaused) root.elapsed += Math.max(0, now - root.lastTick)
             root.lastTick = now
         }
     }
-    readonly property real desktopLeft: Math.min.apply(null, Quickshell.screens.map(s => s.x))
-    readonly property real desktopTop: Math.min.apply(null, Quickshell.screens.map(s => s.y))
-    readonly property real desktopWidth: Math.max.apply(null, Quickshell.screens.map(s => s.x + s.width)) - desktopLeft
-    readonly property real desktopHeight: Math.max.apply(null, Quickshell.screens.map(s => s.y + s.height)) - desktopTop
+    readonly property var desktop: Desktop.bounds(Quickshell.screens)
+    readonly property real desktopLeft: desktop.left
+    readonly property real desktopTop: desktop.top
+    readonly property real desktopWidth: desktop.width
+    readonly property real desktopHeight: desktop.height
     Variants {
         model: Quickshell.screens
         PanelWindow {
@@ -66,7 +72,10 @@ Item {
             screen: modelData
             readonly property var media: root.mediaFor(modelData.name)
             readonly property bool spanning: root.config.mode === "span"
-            visible: media !== null
+            readonly property var monitor: Hyprland.monitorFor(modelData)
+            readonly property var workspace: monitor ? monitor.activeWorkspace : null
+            readonly property bool fullscreen: root.config.pauseOnFullscreen !== false && !!(workspace && workspace.hasFullscreen)
+            visible: media !== null && root.desktopWidth > 0 && root.desktopHeight > 0
             anchors { top: true; bottom: true; left: true; right: true }
             exclusionMode: ExclusionMode.Ignore
             color: "transparent"
@@ -99,7 +108,8 @@ Item {
                             MediaPlayer {
                                 id: player
                                 readonly property string monitorName: wall.modelData.name
-                                readonly property bool batteryPaused: root.paused
+                                readonly property bool suspended: root.paused || wall.fullscreen
+                                readonly property string pauseReason: root.paused ? "battery" : wall.fullscreen ? "fullscreen" : ""
                                 Component.onCompleted: { root.players = root.players.concat([player]); loadMedia() }
                                 Component.onDestruction: root.players = root.players.filter(item => item !== player)
                                 function loadMedia() {
@@ -118,7 +128,7 @@ Item {
                                 audioOutput: AudioOutput { muted: true }
                                 function applyPlayback() {
                                     if (source.toString() === "") { stop(); return }
-                                    if (batteryPaused) {
+                                    if (suspended) {
                                         // Decode the first frame before pausing a newly selected video.
                                         if (position === 0) { play(); freeze.restart() }
                                         else pause()
@@ -128,7 +138,6 @@ Item {
                                     }
                                 }
                                 function align() {
-
                                     if (playbackState !== MediaPlayer.PlayingState) return
                                     if (wall.media && root.groupId === wall.media.id && seekable && duration > 0) {
                                         const desired = root.elapsed % duration
@@ -140,14 +149,14 @@ Item {
                                 onMediaStatusChanged: {
                                     if (mediaStatus === MediaPlayer.LoadedMedia) applyPlayback()
                                 }
-                                onBatteryPausedChanged: applyPlayback()
+                                onSuspendedChanged: applyPlayback()
                                 property Timer syncTimer: Timer {
                                     interval: 500
                                     repeat: true
-                                    running: player.source.toString() !== "" && !player.batteryPaused && root.groupId !== ""
+                                    running: player.source.toString() !== "" && !player.suspended && root.groupId !== ""
                                     onTriggered: player.align()
                                 }
-                                property Timer freezeTimer: Timer { id: freeze; interval: 300; onTriggered: if (player.batteryPaused) player.pause() }
+                                property Timer freezeTimer: Timer { id: freeze; interval: 300; onTriggered: if (player.suspended) player.pause() }
                             }
                         }
                     }
