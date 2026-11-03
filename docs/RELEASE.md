@@ -13,7 +13,7 @@
 - [ ] Verify video decoding, battery pause/resume, and CPU/GPU use.
 - [ ] Test HTTP failures, redirects, media size limit, and corrupt media.
 - [ ] Add actual plugin screenshots and a tagged release.
-- [ ] Publish the public GitHub repository.
+- [x] Publish the public GitHub repository: https://github.com/BraveHart911/wallpaper-pro.
 - [ ] Submit its URL at https://plugins.omarchy.org/publish.html.
 
 The marketplace's maintainers approve listings. A valid manifest alone does not mean approval or runtime correctness.
