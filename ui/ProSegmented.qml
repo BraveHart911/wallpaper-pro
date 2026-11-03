@@ -15,7 +15,7 @@ Rectangle {
     color: Qt.rgba(0.5, 0.5, 0.5, 0.10)
     border.color: Qt.rgba(0.5, 0.5, 0.5, 0.18)
     Accessible.role: Accessible.Grouping
-    Accessible.name: "Live wallpaper display filter"
+    Accessible.name: "Wallpaper display filter"
 
     readonly property real segmentWidth: (width - 8) / Math.max(1, options.length)
 

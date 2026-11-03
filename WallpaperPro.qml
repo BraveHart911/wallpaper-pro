@@ -144,6 +144,7 @@ Item {
     property var state: ({library: []})
     property string selected: ""
     property int librarySection: 0
+    property int allLayoutFilter: 0
     property bool liveDualOnly: false
     property string searchQuery: ""
     readonly property string sortOrder: state.sortOrder || "original"
@@ -160,7 +161,8 @@ Item {
     onLiveDualOnlyChanged: stopPreview(previewId)
     readonly property var filteredLibrary: Library.ordered((state.library || []).filter(item => {
         const layout = item.layout || ((item.width || 0) / (item.height || 1) >= 2.7 ? "panoramic" : "single")
-        const matchesSection = librarySection === 0 || (librarySection === 1 && item.kind === "video" && (!liveDualOnly || layout === "panoramic")) || (librarySection === 2 && layout === "single") || (librarySection === 3 && layout === "panoramic") || (librarySection === 4 && !item.bundled && !item.themeManaged) || (librarySection === 5 && favoriteIds.indexOf(item.id) !== -1) || (librarySection === 6 && (item.themes || []).length > 0)
+        const matchesAllLayout = allLayoutFilter === 0 || (allLayoutFilter === 1 && layout === "single") || (allLayoutFilter === 2 && layout === "panoramic")
+        const matchesSection = (librarySection === 0 && matchesAllLayout) || (librarySection === 1 && item.kind === "video" && (!liveDualOnly || layout === "panoramic")) || (librarySection === 2 && layout === "single") || (librarySection === 3 && layout === "panoramic") || (librarySection === 4 && !item.bundled && !item.themeManaged) || (librarySection === 5 && favoriteIds.indexOf(item.id) !== -1) || (librarySection === 6 && (item.themes || []).length > 0)
         return matchesSection && matchesSearch(item)
     }), sortOrder, state.contextEnabled === true)
     readonly property var selectedMedia: (state.library || []).find(item => item.id === selected) || null
@@ -437,14 +439,17 @@ Item {
                                 }
                                 Item { Layout.fillWidth: true }
                                 ProSegmented {
-                                visible: root.librarySection === 1 && root.inlineLiveSelector
-                                    Layout.preferredWidth: 264
-                                    options: ["All live", "Dual monitor"]
-                                    selectedIndex: root.liveDualOnly ? 1 : 0
+                                    visible: (root.librarySection === 0 || root.librarySection === 1) && root.inlineLiveSelector
+                                    Layout.preferredWidth: root.librarySection === 0 ? 350 : 264
+                                    options: root.librarySection === 0 ? ["All", "Single monitor", "Dual panorama"] : ["All live", "Dual monitor"]
+                                    selectedIndex: root.librarySection === 0 ? root.allLayoutFilter : root.liveDualOnly ? 1 : 0
                                     accent: theme.colors.accent || "#0a84ff"
                                     foreground: theme.colors.foreground
                                     secondary: theme.secondary
-                                    onActivated: function(index) { root.liveDualOnly = index === 1 }
+                                    onActivated: function(index) {
+                                        if (root.librarySection === 0) root.allLayoutFilter = index
+                                        else root.liveDualOnly = index === 1
+                                    }
                                 }
                                 Item { Layout.fillWidth: true }
                                 ProCombo {
@@ -464,17 +469,20 @@ Item {
                             onTextEdited: root.searchQuery = text }
                             }
                             RowLayout {
-                                visible: root.librarySection === 1 && !root.inlineLiveSelector
+                                visible: (root.librarySection === 0 || root.librarySection === 1) && !root.inlineLiveSelector
                                 Layout.fillWidth: true
                                 ProSegmented {
                                     Layout.alignment: Qt.AlignHCenter
-                                    Layout.preferredWidth: Math.min(280, parent.width)
-                                    options: ["All live", "Dual monitor"]
-                                    selectedIndex: root.liveDualOnly ? 1 : 0
+                                    Layout.preferredWidth: Math.min(root.librarySection === 0 ? 350 : 280, parent.width)
+                                    options: root.librarySection === 0 ? ["All", "Single monitor", "Dual panorama"] : ["All live", "Dual monitor"]
+                                    selectedIndex: root.librarySection === 0 ? root.allLayoutFilter : root.liveDualOnly ? 1 : 0
                                     accent: theme.colors.accent || "#0a84ff"
                                     foreground: theme.colors.foreground
                                     secondary: theme.secondary
-                                    onActivated: function(index) { root.liveDualOnly = index === 1 }
+                                    onActivated: function(index) {
+                                        if (root.librarySection === 0) root.allLayoutFilter = index
+                                        else root.liveDualOnly = index === 1
+                                    }
                                 }
                             }
                             Rectangle {
