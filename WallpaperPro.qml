@@ -114,8 +114,10 @@ Item {
             onStreamFinished: {
                 try {
                     const result = JSON.parse(text)
-                    root.monitorMessage = "Brightness set to " + Math.round(result.value * 100 / result.maximum) + "% on " + result.name + "."
-                    root.monitorError = ""
+                    if (!root.monitorBrightnessDragging && result.name === root.monitorBrightnessSendingTarget && result.value === root.monitorBrightnessSendingValue) {
+                        root.monitorMessage = "Brightness set to " + result.value + "% on " + result.name + "."
+                        root.monitorError = ""
+                    }
                 } catch (e) { }
             }
         }
@@ -123,22 +125,21 @@ Item {
         onExited: function(code, status) {
             root.monitorBrightnessApplying = false
             if (code !== 0 && !root.monitorError) root.monitorError = "Could not change hardware brightness."
-            if (root.monitorBrightnessTimer.restartAfterApply) {
-                root.monitorBrightnessTimer.restartAfterApply = false
-                root.monitorBrightnessTimer.restart()
+            if (code === 0) {
+                root.monitorBrightnessLastAppliedTarget = root.monitorBrightnessSendingTarget
+                root.monitorBrightnessLastAppliedValue = root.monitorBrightnessSendingValue
+                if (!root.monitorBrightnessDragging && root.monitorBrightnessTarget === root.monitorBrightnessSendingTarget && root.monitorBrightnessValue === root.monitorBrightnessSendingValue)
+                    root.monitorMessage = "Brightness set to " + root.monitorBrightnessSendingValue + "% on " + root.monitorBrightnessSendingTarget + "."
             }
+            if (root.monitorBrightnessTarget !== root.monitorBrightnessSendingTarget || root.monitorBrightnessValue !== root.monitorBrightnessSendingValue)
+                root.monitorBrightnessTimer.start()
         }
     }
     Timer {
         id: monitorBrightnessTimer
-        property bool restartAfterApply: false
-        interval: 450
+        interval: 100
         repeat: false
-        onTriggered: {
-            if (root.monitorBrightnessDragging) return
-            if (root.monitorBrightnessApplying) restartAfterApply = true
-            else root.applyMonitorBrightness(root.monitorBrightnessTarget, root.monitorBrightnessValue)
-        }
+        onTriggered: if (!root.monitorBrightnessApplying && root.monitorBrightnessTarget && (root.monitorBrightnessTarget !== root.monitorBrightnessLastAppliedTarget || root.monitorBrightnessValue !== root.monitorBrightnessLastAppliedValue)) root.applyMonitorBrightness(root.monitorBrightnessTarget, root.monitorBrightnessValue, root.monitorBrightnessMaximum, root.monitorBrightnessBus)
     }
     Process {
         id: currentThemeProcess
@@ -197,6 +198,12 @@ Item {
     property var monitorBrightnessArgs: []
     property string monitorBrightnessTarget: ""
     property int monitorBrightnessValue: 0
+    property int monitorBrightnessMaximum: 100
+    property int monitorBrightnessBus: -1
+    property string monitorBrightnessSendingTarget: ""
+    property int monitorBrightnessSendingValue: -1
+    property string monitorBrightnessLastAppliedTarget: ""
+    property int monitorBrightnessLastAppliedValue: -1
     property bool monitorBrightnessApplying: false
     property bool monitorBrightnessDragging: false
     property string monitorError: ""
@@ -351,18 +358,25 @@ Item {
         monitorApplying = true
         monitorApplyProcess.running = true
     }
-    function queueMonitorBrightness(name, value, dragging) {
+    function queueMonitorBrightness(name, value, dragging, maximum, bus) {
         monitorBrightnessTarget = name
         monitorBrightnessValue = Math.max(0, Math.min(100, Math.round(value)))
+        monitorBrightnessMaximum = Math.max(1, maximum || 100)
+        monitorBrightnessBus = Number(bus)
         monitorBrightnessDragging = dragging
-        monitorBrightnessTimer.restart()
-    }
-    function applyMonitorBrightness(name, value) {
-        if (!name) return
-        if (monitorBrightnessApplying) { monitorBrightnessTimer.restartAfterApply = true; return }
         monitorError = ""
-        monitorMessage = "Applying brightness to " + name + "…"
-        monitorBrightnessArgs = [name, String(value)]
+        if (!monitorBrightnessApplying && !monitorBrightnessTimer.running && (name !== monitorBrightnessLastAppliedTarget || monitorBrightnessValue !== monitorBrightnessLastAppliedValue))
+            monitorBrightnessTimer.start()
+        if (!dragging && name === monitorBrightnessLastAppliedTarget && monitorBrightnessValue === monitorBrightnessLastAppliedValue)
+            monitorMessage = "Brightness set to " + monitorBrightnessValue + "% on " + name + "."
+    }
+    function applyMonitorBrightness(name, value, maximum, bus) {
+        if (!name || monitorBrightnessApplying) return
+        monitorError = ""
+        if (!monitorBrightnessDragging) monitorMessage = "Applying brightness to " + name + "…"
+        monitorBrightnessSendingTarget = name
+        monitorBrightnessSendingValue = value
+        monitorBrightnessArgs = [name, String(value), "--maximum", String(maximum), "--bus", String(bus)]
         monitorBrightnessApplying = true
         monitorBrightnessProcess.running = true
     }
@@ -1150,7 +1164,7 @@ Item {
                                                             ColumnLayout {
                                                                 Layout.fillWidth: true
                                                                 spacing: 5
-                                                                Label { text: "Hardware brightness · adjusts on release"; color: theme.colors.foreground; font.pixelSize: 11; font.weight: Font.DemiBold; wrapMode: Text.Wrap }
+                                                                Label { text: "Hardware brightness · updates while you drag"; color: theme.colors.foreground; font.pixelSize: 11; font.weight: Font.DemiBold; wrapMode: Text.Wrap }
                                                                 RowLayout {
                                                                     visible: monitorCard.modelData.brightness.available
                                                                     Layout.fillWidth: true
@@ -1161,12 +1175,12 @@ Item {
                                                                         value: monitorCard.modelData.brightness.value * 100 / Math.max(1, monitorCard.modelData.brightness.maximum || 100)
                                                                         stepSize: 1
                                                                         property bool userDragging: false
-                                                                        onMoved: root.queueMonitorBrightness(monitorCard.modelData.name, value, pressed)
+                                                                        onMoved: root.queueMonitorBrightness(monitorCard.modelData.name, value, pressed, monitorCard.modelData.brightness.maximum, monitorCard.modelData.brightness.bus)
                                                                         onPressedChanged: {
                                                                             if (pressed) userDragging = true
                                                                             else if (userDragging) {
                                                                                 userDragging = false
-                                                                                root.queueMonitorBrightness(monitorCard.modelData.name, value, false)
+                                                                                root.queueMonitorBrightness(monitorCard.modelData.name, value, false, monitorCard.modelData.brightness.maximum, monitorCard.modelData.brightness.bus)
                                                                             }
                                                                         }
                                                                         Accessible.name: "Hardware brightness for " + monitorCard.modelData.name

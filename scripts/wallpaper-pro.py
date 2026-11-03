@@ -802,7 +802,7 @@ def monitor_catalog():
         detected = subprocess.run(['ddcutil', 'detect', '--brief'], capture_output=True, text=True, timeout=12, check=False).stdout
         pattern = re.compile(r'Display\s+(\d+)\s+I2C bus:\s+[^\n]*i2c-(\d+)\s+DRM connector:\s+card\d+-(\S+)', re.S)
         for match in pattern.finditer(detected):
-            displays[match.group(3)] = match.group(1)
+            displays[match.group(3)] = {'display': match.group(1), 'bus': int(match.group(2))}
     for monitor in monitors:
         mode_values = []
         seen = set()
@@ -821,10 +821,10 @@ def monitor_catalog():
         monitor['mode'] = current
         display = displays.get(monitor.get('name'))
         if display:
-            brightness = subprocess.run(['ddcutil', 'getvcp', '10', '--display', display, '--brief'], capture_output=True, text=True, timeout=8, check=False)
+            brightness = subprocess.run(['ddcutil', 'getvcp', '10', '--display', display['display'], '--brief'], capture_output=True, text=True, timeout=8, check=False)
             match = re.search(r'VCP\s+10\s+\S+\s+(\d+)\s+(\d+)', brightness.stdout)
             if match:
-                monitor['brightness'] = {'available': True, 'value': int(match.group(1)), 'maximum': int(match.group(2)), 'display': display}
+                monitor['brightness'] = {'available': True, 'value': int(match.group(1)), 'maximum': int(match.group(2)), 'display': display['display'], 'bus': display['bus']}
                 continue
         monitor['brightness'] = {'available': False}
     print(json.dumps({'monitors': monitors}))
@@ -905,37 +905,18 @@ def monitor_set(args):
 
 
 def monitor_brightness(args):
-    if not shutil.which('hyprctl'):
-        raise ValueError('Hyprland is not available')
     if not shutil.which('ddcutil'):
         raise ValueError('Install ddcutil to control this monitor’s hardware brightness')
     if not 0 <= args.value <= 100:
         raise ValueError('Brightness must be between 0 and 100')
-    connected = subprocess.run(['hyprctl', 'monitors', '-j'], capture_output=True, text=True, timeout=8, check=True)
-    if not any(item.get('name') == args.name for item in json.loads(connected.stdout)):
-        raise ValueError('Monitor is not connected: ' + args.name)
-    detected = subprocess.run(['ddcutil', 'detect', '--brief'], capture_output=True, text=True, timeout=12, check=False).stdout
-    display = None
-    for match in re.finditer(r'Display\s+(\d+)\s+I2C bus:\s+[^\n]*i2c-\d+\s+DRM connector:\s+card\d+-(\S+)', detected, re.S):
-        if match.group(2) == args.name:
-            display = match.group(1)
-            break
-    if not display:
-        raise ValueError('Hardware brightness control is not available for ' + args.name)
-    current = subprocess.run(['ddcutil', 'getvcp', '10', '--display', display, '--brief'], capture_output=True, text=True, timeout=8, check=False)
-    values = re.search(r'VCP\s+10\s+\S+\s+(\d+)\s+(\d+)', current.stdout)
-    if not values:
-        raise ValueError('Could not read brightness from ' + args.name + ': ' + (current.stderr.strip() or current.stdout.strip())[-250:])
-    maximum = int(values.group(2))
+    if args.bus < 0 or args.maximum <= 0:
+        raise ValueError('A valid DDC bus and brightness range are required')
+    maximum = args.maximum
     value = round(maximum * args.value / 100)
-    result = subprocess.run(['ddcutil', 'setvcp', '10', str(value), '--display', display, '--verify'], capture_output=True, text=True, timeout=15, check=False)
+    result = subprocess.run(['ddcutil', 'setvcp', '10', str(value), '--bus', str(args.bus), '--verify'], capture_output=True, text=True, timeout=8, check=False)
     if result.returncode:
         raise ValueError('Could not set brightness on ' + args.name + ': ' + (result.stderr.strip() or result.stdout.strip())[-300:])
-    confirmed = subprocess.run(['ddcutil', 'getvcp', '10', '--display', display, '--brief'], capture_output=True, text=True, timeout=8, check=False)
-    actual = re.search(r'VCP\s+10\s+\S+\s+(\d+)\s+(\d+)', confirmed.stdout)
-    if not actual:
-        raise ValueError('Brightness was sent to ' + args.name + ', but the monitor did not report its new level')
-    print(json.dumps({'ok': True, 'name': args.name, 'value': int(actual.group(1)), 'maximum': int(actual.group(2))}))
+    print(json.dumps({'ok': True, 'name': args.name, 'value': args.value, 'maximum': maximum}))
 
 
 def monitor_catalog_data(monitors):
@@ -983,6 +964,8 @@ def main():
     brightness = commands.add_parser('monitor-brightness', help='Adjust display brightness without changing monitor layout')
     brightness.add_argument('name')
     brightness.add_argument('value', type=int)
+    brightness.add_argument('--maximum', type=int, required=True)
+    brightness.add_argument('--bus', type=int, required=True)
     commands.add_parser('off')
     unassign = commands.add_parser('unassign')
     unassign.add_argument('monitor')
