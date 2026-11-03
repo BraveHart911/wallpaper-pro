@@ -815,9 +815,11 @@ Item {
                                 }
                             }
                             Item {
+                                id: monitorPage
                                 visible: root.librarySection === 8
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
+                                readonly property bool narrow: width < 700
                                 ColumnLayout {
                                     anchors.fill: parent
                                     spacing: 14
@@ -854,6 +856,7 @@ Item {
                                                     required property var modelData
                                                     property string draftMode: modelData.mode
                                                     Layout.fillWidth: true
+                                                    Layout.preferredHeight: monitorDetails.implicitHeight + 28
                                                     implicitHeight: monitorDetails.implicitHeight + 28
                                                     radius: 13
                                                     color: root.surface
@@ -883,7 +886,7 @@ Item {
                                                         }
                                                         GridLayout {
                                                             Layout.fillWidth: true
-                                                            columns: root.compact ? 2 : 4
+                                                            columns: monitorPage.narrow ? 2 : 4
                                                             columnSpacing: 10
                                                             rowSpacing: 5
                                                             Label { text: "SERIAL"; color: theme.secondary; font.pixelSize: 9; font.letterSpacing: 1 }
@@ -898,7 +901,7 @@ Item {
                                                         Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: root.divider }
                                                         GridLayout {
                                                             Layout.fillWidth: true
-                                                            columns: root.compact ? 1 : 2
+                                                            columns: monitorPage.narrow ? 1 : 2
                                                             columnSpacing: 14
                                                             rowSpacing: 10
                                                             ColumnLayout {
