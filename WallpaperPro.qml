@@ -842,12 +842,15 @@ Item {
                                         Label { id: monitorNotice; anchors.fill: parent; anchors.margins: 11; text: root.monitorError || root.monitorMessage; color: root.monitorError ? theme.colors.red : theme.secondary; wrapMode: Text.Wrap; font.pixelSize: 12 }
                                     }
                                     ScrollView {
+                                        id: monitorScroll
                                         Layout.fillWidth: true
                                         Layout.fillHeight: true
                                         clip: true
+                                        contentWidth: availableWidth
                                         ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
                                         ColumnLayout {
-                                            width: parent.width
+                                            width: Math.min(monitorScroll.availableWidth, 1080)
+                                            x: Math.max(0, (monitorScroll.availableWidth - width) / 2)
                                             spacing: 12
                                             Repeater {
                                                 model: root.monitors
