@@ -77,6 +77,30 @@ Item {
         }
     }
     Process {
+        id: monitorCatalogProcess
+        command: ["python3", root.script, "monitor-catalog"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try { root.monitors = JSON.parse(text).monitors || []; root.monitorError = "" }
+                catch (e) { root.monitorError = "Could not read connected display information." }
+            }
+        }
+        stderr: StdioCollector { onStreamFinished: if (text.trim()) root.monitorError = text.trim() }
+    }
+    Process {
+        id: monitorApplyProcess
+        command: ["python3", root.script, "monitor-set"].concat(root.monitorArgs)
+        stderr: StdioCollector { onStreamFinished: if (text.trim()) root.monitorError = text.trim() }
+        onExited: function(code, status) {
+            root.monitorApplying = false
+            if (code === 0) {
+                root.monitorMessage = "Monitor settings applied. A backup of monitors.lua was saved."
+                root.monitorError = ""
+                root.refreshMonitors()
+            } else if (!root.monitorError) root.monitorError = "Could not apply monitor settings."
+        }
+    }
+    Process {
         id: currentThemeProcess
         command: ["omarchy", "theme", "current"]
         stdout: StdioCollector { onStreamFinished: root.currentThemeName = text.trim() }
@@ -124,6 +148,11 @@ Item {
     property string currentThemeName: ""
     property string currentThemeMode: "unknown"
     property string currentBackground: ""
+    property var monitors: []
+    property var monitorArgs: []
+    property bool monitorApplying: false
+    property string monitorError: ""
+    property string monitorMessage: ""
     property string themeSearch: ""
     property string pendingTheme: ""
     property bool themeApplying: false
@@ -232,6 +261,19 @@ Item {
         if (!themeListProcess.running) themeListProcess.running = true
         if (!currentThemeProcess.running) currentThemeProcess.running = true
         if (!currentBackgroundProcess.running) currentBackgroundProcess.running = true
+    }
+    function refreshMonitors() {
+        monitorMessage = ""
+        if (!monitorCatalogProcess.running) monitorCatalogProcess.running = true
+    }
+    function applyMonitor(name, modeValue, x, y, scale, brightness) {
+        if (monitorApplying) return
+        monitorError = ""
+        monitorMessage = ""
+        monitorArgs = [name, "--mode", modeValue, "--x", String(x), "--y", String(y), "--scale", String(scale)]
+        if (brightness >= 0) monitorArgs = monitorArgs.concat(["--brightness", String(brightness)])
+        monitorApplying = true
+        monitorApplyProcess.running = true
     }
     function applyTheme(name) {
         if (themeApplying || !name) return
@@ -353,13 +395,13 @@ Item {
                         Label { visible: panel.width > 620; text: "Wallpaper Pro"; font.pixelSize: 14; font.weight: Font.DemiBold; color: theme.colors.foreground }
                         Item { Layout.fillWidth: true }
                         ProField {
-                            visible: !root.compact && root.librarySection !== 7
+                            visible: !root.compact && root.librarySection !== 7 && root.librarySection !== 8
                             Layout.preferredWidth: 230
                             placeholderText: "Search wallpapers"
                             text: root.searchQuery
                             onTextEdited: root.searchQuery = text
                         }
-                        ProButton { id: addButton; visible: root.librarySection !== 7; text: "+  Add wallpapers"; primary: true; onClicked: importPopup.open() }
+                        ProButton { id: addButton; visible: root.librarySection !== 7 && root.librarySection !== 8; text: "+  Add wallpapers"; primary: true; onClicked: importPopup.open() }
                         ProButton { text: "⚙"; quiet: true; onClicked: settingsPopup.open(); Accessible.name: "Wallpaper settings" }
                     }
                 }
@@ -401,6 +443,17 @@ Item {
                                 onClicked: { root.librarySection = 7; root.refreshThemeControls() }
                                 Accessible.name: "Open themes and appearance controls"
                             }
+                            Rectangle { Layout.fillWidth: true; Layout.topMargin: 6; Layout.bottomMargin: 2; implicitHeight: 1; color: root.divider }
+                            Label { text: "SYSTEM"; color: theme.secondary; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.2; Layout.leftMargin: 12; Layout.bottomMargin: 2 }
+                            ProButton {
+                                Layout.fillWidth: true
+                                text: "Monitor control"
+                                navigation: true
+                                iconName: "monitor"
+                                checked: root.librarySection === 8
+                                onClicked: { root.librarySection = 8; root.refreshMonitors() }
+                                Accessible.name: "Open monitor controls"
+                            }
                             Item { Layout.fillHeight: true }
                             Label { text: "YOUR DISPLAYS"; color: theme.secondary; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.3; Layout.leftMargin: 12; Layout.bottomMargin: 10 }
                             Repeater {
@@ -437,7 +490,7 @@ Item {
                             anchors.margins: root.compact ? 20 : 28
                             spacing: 18
                             RowLayout {
-                                visible: root.librarySection !== 7
+                                visible: root.librarySection !== 7 && root.librarySection !== 8
                                 Layout.fillWidth: true
                                 ColumnLayout {
                                     Layout.preferredWidth: 220
@@ -472,8 +525,8 @@ Item {
                             RowLayout {
                                 visible: root.compact && root.librarySection !== 7
                                 Layout.fillWidth: true
-                                ProCombo { Layout.fillWidth: true; model: root.sections; currentIndex: root.librarySection; onActivated: root.librarySection = currentIndex }
-                                ProField { Layout.fillWidth: true; placeholderText: "Search"; text: root.searchQuery
+                                ProCombo { Layout.fillWidth: true; model: root.sections.concat(["Themes & appearance", "Monitor control"]); currentIndex: root.librarySection; onActivated: { root.librarySection = currentIndex; if (currentIndex === 7) root.refreshThemeControls(); if (currentIndex === 8) root.refreshMonitors() } }
+                                ProField { visible: root.librarySection !== 8; Layout.fillWidth: true; placeholderText: "Search"; text: root.searchQuery
                             onTextEdited: root.searchQuery = text }
                             }
                             RowLayout {
@@ -512,7 +565,7 @@ Item {
                                 }
                             }
                             RowLayout {
-                                visible: root.librarySection !== 7
+                                visible: root.librarySection !== 7 && root.librarySection !== 8
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 spacing: 8
@@ -761,11 +814,152 @@ Item {
                                     }
                                 }
                             }
+                            Item {
+                                visible: root.librarySection === 8
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    spacing: 14
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 4
+                                            Label { text: "Monitor control"; color: theme.colors.foreground; font.pixelSize: 27; font.weight: Font.DemiBold }
+                                            Label { text: root.monitors.length + " connected display" + (root.monitors.length === 1 ? "" : "s") + " · configure layout, refresh rate, scale, and brightness"; color: theme.secondary; font.pixelSize: 12; wrapMode: Text.Wrap }
+                                        }
+                                        ProButton { text: "Refresh"; quiet: true; enabled: !monitorCatalogProcess.running; onClicked: root.refreshMonitors() }
+                                    }
+                                    Rectangle {
+                                        visible: root.monitorError !== "" || root.monitorMessage !== ""
+                                        Layout.fillWidth: true
+                                        implicitHeight: monitorNotice.implicitHeight + 22
+                                        radius: 10
+                                        color: root.monitorError ? Qt.rgba(0.9,0.14,0.14,0.10) : Qt.rgba(0.04,0.52,1,0.08)
+                                        Label { id: monitorNotice; anchors.fill: parent; anchors.margins: 11; text: root.monitorError || root.monitorMessage; color: root.monitorError ? theme.colors.red : theme.secondary; wrapMode: Text.Wrap; font.pixelSize: 12 }
+                                    }
+                                    ScrollView {
+                                        Layout.fillWidth: true
+                                        Layout.fillHeight: true
+                                        clip: true
+                                        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                                        ColumnLayout {
+                                            width: parent.width
+                                            spacing: 12
+                                            Repeater {
+                                                model: root.monitors
+                                                delegate: Rectangle {
+                                                    id: monitorCard
+                                                    required property var modelData
+                                                    property string draftMode: modelData.mode
+                                                    Layout.fillWidth: true
+                                                    implicitHeight: monitorDetails.implicitHeight + 28
+                                                    radius: 13
+                                                    color: root.surface
+                                                    border.color: root.divider
+                                                    ColumnLayout {
+                                                        id: monitorDetails
+                                                        anchors.left: parent.left
+                                                        anchors.right: parent.right
+                                                        anchors.top: parent.top
+                                                        anchors.margins: 14
+                                                        spacing: 12
+                                                        RowLayout {
+                                                            Layout.fillWidth: true
+                                                            spacing: 10
+                                                            Rectangle {
+                                                                Layout.preferredWidth: 38; Layout.preferredHeight: 38; radius: 11
+                                                                color: Qt.rgba(0.04,0.52,1,0.12)
+                                                                NavIcon { anchors.centerIn: parent; width: 22; height: 22; name: "monitor"; color: theme.colors.accent || "#0a84ff" }
+                                                            }
+                                                            ColumnLayout {
+                                                                Layout.fillWidth: true
+                                                                spacing: 3
+                                                                Label { text: monitorCard.modelData.name + (monitorCard.modelData.focused ? " · Active" : ""); color: theme.colors.foreground; font.pixelSize: 16; font.weight: Font.DemiBold }
+                                                                Label { text: [monitorCard.modelData.make, monitorCard.modelData.model].filter(value => value).join(" ") || monitorCard.modelData.description || "Connected display"; color: theme.secondary; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
+                                                            }
+                                                            Label { text: monitorCard.modelData.width + " × " + monitorCard.modelData.height + "  ·  " + Number(monitorCard.modelData.refreshRate).toFixed(2) + " Hz"; color: theme.secondary; font.pixelSize: 11; horizontalAlignment: Text.AlignRight }
+                                                        }
+                                                        GridLayout {
+                                                            Layout.fillWidth: true
+                                                            columns: root.compact ? 2 : 4
+                                                            columnSpacing: 10
+                                                            rowSpacing: 5
+                                                            Label { text: "SERIAL"; color: theme.secondary; font.pixelSize: 9; font.letterSpacing: 1 }
+                                                            Label { text: monitorCard.modelData.serial || "Not reported"; color: theme.colors.foreground; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
+                                                            Label { text: "POSITION"; color: theme.secondary; font.pixelSize: 9; font.letterSpacing: 1 }
+                                                            Label { text: monitorCard.modelData.x + " × " + monitorCard.modelData.y + " logical px"; color: theme.colors.foreground; font.pixelSize: 11 }
+                                                            Label { text: "SCALE / TRANSFORM"; color: theme.secondary; font.pixelSize: 9; font.letterSpacing: 1 }
+                                                            Label { text: monitorCard.modelData.scale + "×  ·  " + (monitorCard.modelData.transform || "normal"); color: theme.colors.foreground; font.pixelSize: 11 }
+                                                            Label { text: "PHYSICAL SIZE"; color: theme.secondary; font.pixelSize: 9; font.letterSpacing: 1 }
+                                                            Label { text: monitorCard.modelData.physicalWidth && monitorCard.modelData.physicalHeight ? monitorCard.modelData.physicalWidth + " × " + monitorCard.modelData.physicalHeight + " mm" : "Not reported"; color: theme.colors.foreground; font.pixelSize: 11 }
+                                                        }
+                                                        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: root.divider }
+                                                        GridLayout {
+                                                            Layout.fillWidth: true
+                                                            columns: root.compact ? 1 : 2
+                                                            columnSpacing: 14
+                                                            rowSpacing: 10
+                                                            ColumnLayout {
+                                                                Layout.fillWidth: true
+                                                                spacing: 5
+                                                                Label { text: "Resolution & refresh rate"; color: theme.colors.foreground; font.pixelSize: 11; font.weight: Font.DemiBold }
+                                                                ProCombo {
+                                                                    Layout.fillWidth: true
+                                                                    model: monitorCard.modelData.modes.map(item => item.label)
+                                                                    currentIndex: Math.max(0, monitorCard.modelData.modes.findIndex(item => item.value === monitorCard.draftMode))
+                                                                    onActivated: monitorCard.draftMode = monitorCard.modelData.modes[currentIndex].value
+                                                                }
+                                                            }
+                                                            ColumnLayout {
+                                                                Layout.fillWidth: true
+                                                                spacing: 5
+                                                                Label { text: "Position · logical pixels"; color: theme.colors.foreground; font.pixelSize: 11; font.weight: Font.DemiBold }
+                                                                RowLayout {
+                                                                    Layout.fillWidth: true
+                                                                    SpinBox { id: monitorX; Layout.fillWidth: true; from: -20000; to: 20000; value: monitorCard.modelData.x; editable: true; stepSize: 40; Accessible.name: "Monitor horizontal position" }
+                                                                    Label { text: "×"; color: theme.secondary }
+                                                                    SpinBox { id: monitorY; Layout.fillWidth: true; from: -20000; to: 20000; value: monitorCard.modelData.y; editable: true; stepSize: 40; Accessible.name: "Monitor vertical position" }
+                                                                }
+                                                            }
+                                                            ColumnLayout {
+                                                                Layout.fillWidth: true
+                                                                spacing: 5
+                                                                Label { text: "Display scale"; color: theme.colors.foreground; font.pixelSize: 11; font.weight: Font.DemiBold }
+                                                                SpinBox { id: monitorScale; Layout.fillWidth: true; from: 50; to: 300; value: Math.round(monitorCard.modelData.scale * 100); stepSize: 25; editable: true; textFromValue: function(value, locale) { return (value / 100).toFixed(2) + "×" }; valueFromText: function(text, locale) { return Math.round(parseFloat(text.replace("×", "")) * 100) }; Accessible.name: "Display scale" }
+                                                            }
+                                                            ColumnLayout {
+                                                                Layout.fillWidth: true
+                                                                spacing: 5
+                                                                Label { text: "Hardware brightness"; color: theme.colors.foreground; font.pixelSize: 11; font.weight: Font.DemiBold }
+                                                                RowLayout {
+                                                                    visible: monitorCard.modelData.brightness.available
+                                                                    Layout.fillWidth: true
+                                                                    Slider { id: monitorBrightness; Layout.fillWidth: true; from: 0; to: 100; value: monitorCard.modelData.brightness.value; stepSize: 1 }
+                                                                    Label { text: Math.round(monitorBrightness.value) + "%"; color: theme.secondary; font.pixelSize: 11; Layout.preferredWidth: 34 }
+                                                                }
+                                                                Label { visible: !monitorCard.modelData.brightness.available; text: "Not supported by this display"; color: theme.secondary; font.pixelSize: 11 }
+                                                            }
+                                                        }
+                                                        RowLayout {
+                                                            Layout.fillWidth: true
+                                                            Label { text: monitorCard.modelData.vrr ? "Variable refresh supported" : "Modes: " + monitorCard.modelData.modes.length; color: theme.secondary; font.pixelSize: 10; Layout.fillWidth: true }
+                                                            ProButton { text: root.monitorApplying ? "Applying…" : "Apply to " + monitorCard.modelData.name; primary: true; enabled: !root.monitorApplying && monitorCard.modelData.modes.length > 0; onClicked: root.applyMonitor(monitorCard.modelData.name, monitorCard.draftMode, monitorX.value, monitorY.value, monitorScale.value / 100, monitorCard.modelData.brightness.available ? Math.round(monitorBrightness.value) : -1) }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            Label { visible: root.monitors.length === 0; Layout.fillWidth: true; text: monitorCatalogProcess.running ? "Reading display information…" : "No connected displays were found."; color: theme.secondary; horizontalAlignment: Text.AlignHCenter; Layout.topMargin: 40 }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
                 Rectangle {
-                    visible: root.librarySection !== 7
+                    visible: root.librarySection !== 7 && root.librarySection !== 8
                     Layout.fillWidth: true
                     implicitHeight: root.compact ? 104 : 80
                     color: root.surface

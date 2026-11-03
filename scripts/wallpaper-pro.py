@@ -17,6 +17,7 @@ import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
+import time
 
 IMAGE = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.avif'}
 VIDEO = {'.mp4', '.webm', '.mkv', '.mov', '.m4v', '.gif'}
@@ -791,6 +792,134 @@ def theme_catalog():
     print(json.dumps({'current': current, 'themes': colors}))
 
 
+def monitor_catalog():
+    if not shutil.which('hyprctl'):
+        raise ValueError('Hyprland is not available')
+    result = subprocess.run(['hyprctl', 'monitors', '-j'], capture_output=True, text=True, timeout=8, check=True)
+    monitors = json.loads(result.stdout)
+    displays = {}
+    if shutil.which('ddcutil'):
+        detected = subprocess.run(['ddcutil', 'detect', '--brief'], capture_output=True, text=True, timeout=12, check=False).stdout
+        pattern = re.compile(r'Display\s+(\d+)\s+I2C bus:\s+[^\n]*i2c-(\d+)\s+DRM connector:\s+card\d+-(\S+)', re.S)
+        for match in pattern.finditer(detected):
+            displays[match.group(3)] = match.group(1)
+    for monitor in monitors:
+        mode_values = []
+        seen = set()
+        for item in monitor.get('availableModes', []):
+            match = re.fullmatch(r'(\d+x\d+)@([\d.]+)Hz', item.strip())
+            if not match:
+                continue
+            value = match.group(1) + '@' + str(round(float(match.group(2)), 2))
+            if value in seen:
+                continue
+            seen.add(value)
+            mode_values.append({'value': value, 'label': match.group(1).replace('x', ' × ') + ' · ' + str(round(float(match.group(2)), 2)).rstrip('0').rstrip('.') + ' Hz'})
+        current = str(monitor.get('width', 0)) + 'x' + str(monitor.get('height', 0)) + '@' + str(round(monitor.get('refreshRate', 0), 2))
+        mode_values.sort(key=lambda item: (item['value'] != current, -int(item['value'].split('x', 1)[0]), -float(item['value'].split('@', 1)[1])))
+        monitor['modes'] = mode_values
+        monitor['mode'] = current
+        display = displays.get(monitor.get('name'))
+        if display:
+            brightness = subprocess.run(['ddcutil', 'getvcp', '10', '--display', display, '--brief'], capture_output=True, text=True, timeout=8, check=False)
+            match = re.search(r'VCP\s+10\s+\S+\s+(\d+)\s+(\d+)', brightness.stdout)
+            if match:
+                monitor['brightness'] = {'available': True, 'value': int(match.group(1)), 'maximum': int(match.group(2)), 'display': display}
+                continue
+        monitor['brightness'] = {'available': False}
+    print(json.dumps({'monitors': monitors}))
+
+
+def monitor_set(args):
+    if not shutil.which('hyprctl'):
+        raise ValueError('Hyprland is not available')
+    queried = subprocess.run(['hyprctl', 'monitors', '-j'], capture_output=True, text=True, timeout=8, check=True)
+    monitors = json.loads(queried.stdout)
+    target = next((item for item in monitors if item.get('name') == args.name), None)
+    if target is None:
+        raise ValueError('Monitor is not connected: ' + args.name)
+    mode_match = re.fullmatch(r'(\d+x\d+)@([\d.]+)', args.mode)
+    supported = next((item['modes'] for item in monitor_catalog_data([target]) if item['name'] == args.name), [])
+    if not mode_match or args.mode not in {item['value'] for item in supported}:
+        raise ValueError('Choose a mode supported by this monitor')
+    if not (-20000 <= args.x <= 20000 and -20000 <= args.y <= 20000 and 0.5 <= args.scale <= 3.0):
+        raise ValueError('Position or scale is outside the supported range')
+    config = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'hypr/monitors.lua'
+    if not config.is_file():
+        raise ValueError('Could not find ~/.config/hypr/monitors.lua')
+    display = None
+    if args.brightness is not None:
+        detected = subprocess.run(['ddcutil', 'detect', '--brief'], capture_output=True, text=True, timeout=12, check=False).stdout if shutil.which('ddcutil') else ''
+        for match in re.finditer(r'Display\s+(\d+)\s+I2C bus:\s+[^\n]*i2c-\d+\s+DRM connector:\s+card\d+-(\S+)', detected, re.S):
+            if match.group(2) == args.name:
+                display = match.group(1)
+                break
+        if not display:
+            raise ValueError('Hardware brightness control is not available for ' + args.name)
+    original = config.read_text()
+    call = re.compile(r'hl\.monitor\(\s*\{([^{}]*)\}\s*\)', re.S)
+    found = False
+    def update_monitor(match):
+        nonlocal found
+        body = match.group(1)
+        output = re.search(r'output\s*=\s*["\']([^"\']*)["\']', body)
+        if not output or output.group(1) != args.name:
+            return match.group(0)
+        found = True
+        fields = {'mode': '"' + args.mode + '"', 'position': '"' + str(args.x) + 'x' + str(args.y) + '"', 'scale': str(args.scale)}
+        for field, value in fields.items():
+            field_pattern = re.compile(r'\b' + field + r'\s*=\s*(?:"[^"]*"|\'[^\']*\'|[\d.]+|[A-Za-z_][\w.]*)')
+            if field_pattern.search(body):
+                body = field_pattern.sub(field + ' = ' + value, body, count=1)
+            else:
+                body = body.rstrip() + ', ' + field + ' = ' + value
+        return 'hl.monitor({ ' + body.strip() + ' })'
+    updated = call.sub(update_monitor, original)
+    if not found:
+        updated = updated.rstrip() + '\n\nhl.monitor({ output = "' + args.name + '", mode = "' + args.mode + '", position = "' + str(args.x) + 'x' + str(args.y) + '", scale = ' + str(args.scale) + ' })\n'
+    stamp = time.strftime('%Y%m%d-%H%M%S')
+    backup = config.with_name(config.name + '.bak-wallpaper-pro-' + stamp)
+    shutil.copy2(config, backup)
+    config.write_text(updated)
+    reload_result = subprocess.run(['hyprctl', 'reload'], capture_output=True, text=True, timeout=12, check=False)
+    errors = subprocess.run(['hyprctl', 'configerrors'], capture_output=True, text=True, timeout=8, check=False)
+    if reload_result.returncode or errors.returncode or errors.stdout.strip():
+        shutil.copy2(backup, config)
+        subprocess.run(['hyprctl', 'reload'], capture_output=True, text=True, timeout=12, check=False)
+        raise ValueError('Hyprland rejected the monitor layout. The previous configuration was restored.')
+    if args.brightness is not None:
+        current_brightness = subprocess.run(['ddcutil', 'getvcp', '10', '--display', display, '--brief'], capture_output=True, text=True, timeout=8, check=False)
+        brightness_match = re.search(r'VCP\s+10\s+\S+\s+(\d+)\s+(\d+)', current_brightness.stdout)
+        if not brightness_match:
+            shutil.copy2(backup, config)
+            subprocess.run(['hyprctl', 'reload'], capture_output=True, text=True, timeout=12, check=False)
+            raise ValueError('Could not read hardware brightness; the previous layout was restored.')
+        maximum = int(brightness_match.group(2))
+        value = round(maximum * max(0, min(100, args.brightness)) / 100)
+        result = subprocess.run(['ddcutil', 'setvcp', '10', str(value), '--display', display], capture_output=True, text=True, timeout=12, check=False)
+        if result.returncode:
+            shutil.copy2(backup, config)
+            subprocess.run(['hyprctl', 'reload'], capture_output=True, text=True, timeout=12, check=False)
+            raise ValueError('Monitor layout was saved, but brightness could not be changed; the previous layout was restored: ' + result.stderr.strip()[-300:])
+    print(json.dumps({'ok': True, 'backup': str(backup)}))
+
+
+def monitor_catalog_data(monitors):
+    output = []
+    for monitor in monitors:
+        modes = []
+        seen = set()
+        for item in monitor.get('availableModes', []):
+            match = re.fullmatch(r'(\d+x\d+)@([\d.]+)Hz', item.strip())
+            if match:
+                value = match.group(1) + '@' + str(round(float(match.group(2)), 2))
+                if value not in seen:
+                    seen.add(value)
+                    modes.append({'value': value, 'label': match.group(1) + ' @ ' + str(round(float(match.group(2)), 2)) + ' Hz'})
+        output.append({'name': monitor['name'], 'modes': modes})
+    return output
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
@@ -809,6 +938,14 @@ def main():
     thumbnails.add_argument('--force', action='store_true', help='Rebuild existing cached previews')
     commands.add_parser('doctor')
     commands.add_parser('theme-catalog', help='List installed themes with accent colors')
+    commands.add_parser('monitor-catalog', help='List connected monitor details and controls')
+    monitor = commands.add_parser('monitor-set', help='Save monitor layout and optional brightness')
+    monitor.add_argument('name')
+    monitor.add_argument('--mode', required=True)
+    monitor.add_argument('--x', required=True, type=int)
+    monitor.add_argument('--y', required=True, type=int)
+    monitor.add_argument('--scale', required=True, type=float)
+    monitor.add_argument('--brightness', type=int)
     commands.add_parser('off')
     unassign = commands.add_parser('unassign')
     unassign.add_argument('monitor')
@@ -830,6 +967,12 @@ def main():
     args = parser.parse_args()
     if args.command == 'theme-catalog':
         theme_catalog()
+        return
+    if args.command == 'monitor-catalog':
+        monitor_catalog()
+        return
+    if args.command == 'monitor-set':
+        monitor_set(args)
         return
     if args.command == 'doctor':
         print(json.dumps(desktop_diagnostics()))
