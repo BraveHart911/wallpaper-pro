@@ -11,11 +11,12 @@ Item {
     property var shell
     property var manifest
     property var config: ({})
+    property bool hasSettings: false
     property var players: []
     function playbackStatus() {
-        return JSON.stringify({ enabled: !!config.enabled, mode: config.mode || "individual", paused: paused,
+        return JSON.stringify({ monitors: Quickshell.screens.map(screen => screen.name), enabled: !!config.enabled, mode: config.mode || "individual", paused: paused,
             players: players.map(player => ({ monitor: player.monitorName, position: player.position,
-                duration: player.duration, state: player.playbackState, error: player.errorString })) })
+                duration: player.duration, mediaStatus: player.mediaStatus, loops: player.loops, state: player.playbackState, error: player.errorString })) })
     }
     IpcHandler {
         target: "wallpaper-pro"
@@ -28,7 +29,8 @@ Item {
         watchChanges: true
         printErrors: false
         onFileChanged: reload()
-        onLoaded: { try { root.config = JSON.parse(text()) } catch (e) { console.warn("Wallpaper Pro: invalid settings", e) } }
+        onLoadFailed: if (root.hasSettings) root.config = ({})
+        onLoaded: { root.hasSettings = true; try { root.config = JSON.parse(text()) } catch (e) { console.warn("Wallpaper Pro: invalid settings", e) } }
     }
     // Also handles first use, when no file exists for FileView to watch yet.
     Timer { interval: 2000; repeat: true; running: true; onTriggered: settings.reload() }
@@ -86,33 +88,68 @@ Item {
                         asynchronous: true
                         fillMode: Image.PreserveAspectCrop
                     }
-                    Video {
-                        id: video
-                        readonly property string monitorName: wall.modelData.name
-                        Component.onCompleted: root.players = root.players.concat([video])
-                        Component.onDestruction: root.players = root.players.filter(player => player !== video)
+                    VideoOutput {
+                        id: output
                         anchors.fill: parent
-                        source: wall.media && wall.media.kind === "video" ? wall.media.url : ""
-                        loops: MediaPlayer.Infinite
-                        muted: true
                         fillMode: VideoOutput.PreserveAspectCrop
-                        readonly property bool paused: root.paused
-                        function align() {
-                            if (wall.media && root.groupId === wall.media.id && seekable && duration > 0) {
-                                const desired = root.elapsed % duration
-                                const delta = Math.abs(position - desired)
-                                if (Math.min(delta, duration - delta) > 150) seek(desired)
+                    }
+                    Loader {
+                        active: wall.media !== null && wall.media.kind === "video"
+                        sourceComponent: Component {
+                            MediaPlayer {
+                                id: player
+                                readonly property string monitorName: wall.modelData.name
+                                readonly property bool batteryPaused: root.paused
+                                Component.onCompleted: { root.players = root.players.concat([player]); loadMedia() }
+                                Component.onDestruction: root.players = root.players.filter(item => item !== player)
+                                function loadMedia() {
+                                    const next = wall.media && wall.media.kind === "video" ? wall.media.url : ""
+                                    if (source.toString() === next) return
+                                    // Stop the old stream while it is still attached, then replace it.
+                                    stop()
+                                    source = next
+                                }
+                                property Connections mediaConnection: Connections {
+                                    target: wall
+                                    function onMediaChanged() { player.loadMedia() }
+                                }
+                                loops: MediaPlayer.Infinite
+                                videoOutput: output
+                                audioOutput: AudioOutput { muted: true }
+                                function applyPlayback() {
+                                    if (source.toString() === "") { stop(); return }
+                                    if (batteryPaused) {
+                                        // Decode the first frame before pausing a newly selected video.
+                                        if (position === 0) { play(); freeze.restart() }
+                                        else pause()
+                                    } else {
+                                        freeze.stop()
+                                        play()
+                                    }
+                                }
+                                function align() {
+
+                                    if (playbackState !== MediaPlayer.PlayingState) return
+                                    if (wall.media && root.groupId === wall.media.id && seekable && duration > 0) {
+                                        const desired = root.elapsed % duration
+                                        const delta = Math.abs(position - desired)
+                                        if (Math.min(delta, duration - delta) > 150) position = desired
+                                    }
+                                }
+                                onSourceChanged: Qt.callLater(applyPlayback)
+                                onMediaStatusChanged: {
+                                    if (mediaStatus === MediaPlayer.LoadedMedia) applyPlayback()
+                                }
+                                onBatteryPausedChanged: applyPlayback()
+                                property Timer syncTimer: Timer {
+                                    interval: 500
+                                    repeat: true
+                                    running: player.source.toString() !== "" && !player.batteryPaused && root.groupId !== ""
+                                    onTriggered: player.align()
+                                }
+                                property Timer freezeTimer: Timer { id: freeze; interval: 300; onTriggered: if (player.batteryPaused) player.pause() }
                             }
                         }
-                        Timer {
-                            interval: 500
-                            repeat: true
-                            running: video.source.toString() !== "" && !video.paused && root.groupId !== ""
-                            onTriggered: video.align()
-                        }
-                        onSourceChanged: { if (source.toString() !== "") { play(); if (paused) freeze.restart() } }
-                        onPausedChanged: { if (paused) pause(); else if (source.toString() !== "") play() }
-                        Timer { id: freeze; interval: 300; onTriggered: if (video.paused) video.pause() }
                     }
                 }
             }

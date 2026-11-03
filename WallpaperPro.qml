@@ -10,10 +10,13 @@ import Quickshell.Wayland
 Item {
     id: root
     property var shell
+    property alias renderer: rendererService
+    WallpaperService { id: rendererService }
     property var manifest
     property bool opened: false
     property var state: ({library: []})
     property string selected: ""
+    readonly property string playbackErrors: rendererService.players.map(player => player.errorString ? player.monitorName + ": " + player.errorString : "").filter(text => text !== "").join(" · ")
     property string message: "Add an image or video to get started."
     readonly property string script: decodeURIComponent(Qt.resolvedUrl("scripts/wallpaper-pro.py").toString().replace(/^file:\/\//, ""))
     onStateChanged: {
@@ -82,6 +85,13 @@ Item {
                 Button { text: "Import link"; enabled: !worker.running && link.text.trim() !== ""; onClicked: root.run(["import", link.text.trim()]) }
             }
             Label { text: root.message; color: "#bcd0dd"; Layout.fillWidth: true; wrapMode: Text.Wrap }
+            Label {
+                text: "Playback issue: " + root.playbackErrors
+                visible: root.playbackErrors !== ""
+                color: "#ffb4a9"
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+            }
             RowLayout {
                 Repeater {
                     model: Quickshell.screens

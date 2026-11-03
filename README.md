@@ -37,6 +37,8 @@ Open Wallpaper Pro from its bar icon. Add media, select a library card, select t
 
 Wallpaper Pro adds click-through bottom-layer windows and does not rewrite Omarchy's theme, wallpaper, Hyprland startup, or other plugins' settings. Other live wallpaper plugins may compete for the same desktop layer; turn those off through their own controls while using Wallpaper Pro. Stock backgrounds remain underneath.
 
+The manager stays loaded when closed so wallpapers continue playing. Disabling the plugin removes its renderer; turning wallpapers off destroys its video players. Plugin updates may require `omarchy restart shell` to replace already loaded QML components.
+
 ## Command line
 
 ```sh
@@ -49,7 +51,7 @@ python3 scripts/wallpaper-pro.py apply MEDIA_ID --mode span
 python3 scripts/wallpaper-pro.py off
 ```
 
-`MEDIA_ID` comes from `status`. `unassign MONITOR` clears one saved monitor assignment; `battery on` and `battery off` control battery pausing. `omarchy-shell wallpaper-pro status` reports renderer state, per-monitor playback positions, and decoder errors while the service is loaded. `remove MEDIA_ID` forgets an unassigned library entry; it retains the cached media file. Imports copy local files, leaving the originals untouched. Downloads have a 512 MiB limit and a 30-second socket timeout. Imports use ffprobe to reject files without a readable video/image stream. This checks stream metadata, not every frame; playback errors can still occur.
+`MEDIA_ID` comes from `status`. `unassign MONITOR` clears one saved monitor assignment; `battery on` and `battery off` control battery pausing. `omarchy-shell wallpaper-pro status` reports renderer state, per-monitor playback positions, and decoder errors while the plugin is enabled. `remove MEDIA_ID` forgets an unassigned library entry; it retains the cached media file. Imports copy local files, leaving the originals untouched. Downloads have a 512 MiB limit and a 30-second socket timeout. Imports use ffprobe to reject files without a readable video/image stream. This checks stream metadata, not every frame; playback errors can still occur.
 
 Settings: `$XDG_CONFIG_HOME/wallpaper-pro/settings.json` (default `~/.config/wallpaper-pro/settings.json`). Media: `$XDG_DATA_HOME/wallpaper-pro/library` (default `~/.local/share/wallpaper-pro/library`). Settings include source URLs, so avoid sharing them if URLs contain private access tokens. Nothing uploads your media or sends analytics.
 
@@ -69,5 +71,7 @@ A graphical playback smoke test (briefly shows test media, without saving settin
 ```sh
 WALLPAPER_PRO_SMOKE_KIND=video WALLPAPER_PRO_SMOKE_MEDIA=file:///absolute/path/test.mp4 quickshell -p SmokeTest.qml
 ```
+
+A full installed-plugin session test is available with `python3 tests/integration_session.py`. It requires two monitors, temporarily switches wallpapers, generates its own fixtures, and restores the exact original settings in a `finally` block. It is a manual graphical-session test, separate from CI.
 
 See [release checklist](docs/RELEASE.md) for remaining integration testing and marketplace steps. No wallpaper assets are bundled. Import only media you have permission to use.

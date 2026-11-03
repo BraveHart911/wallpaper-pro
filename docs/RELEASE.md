@@ -2,13 +2,14 @@
 
 ## Before marketplace submission
 
-- [x] Valid root Omarchy manifest and separate service/overlay/bar entry points.
+- [x] Valid root Omarchy manifest, persistent overlay with an embedded renderer, and bar entry point.
 - [x] Python library tests and GitHub Actions workflow.
 - [x] QML components load in an isolated Quickshell harness.
 - [x] GitHub owner: BraveHart911; plugin namespace: bravehart911.wallpaper-pro; MIT license attributed to Leif.
-- [ ] Test full bar click and enable/disable lifecycle inside Omarchy. Installation, enabling, and IPC summon have passed on the development machine.
+- [x] Test installation, enable/disable lifecycle, shell restart, and IPC summon inside Omarchy.
+- [ ] Test the actual bar-button click with the selected replacement bar.
 - [ ] Visually verify local file picker, imports, failure messages, and keyboard flow.
-- [ ] Test independent image/video assignments on both physical monitors.
+- [x] Test independent image/video assignments, all-monitor video, panoramic video, looping, and off/decoder cleanup on DP-2 and HDMI-A-2. Original settings restored after testing.
 - [ ] Test image spanning with negative positions, mixed scale, rotation, and hotplug.
 - [ ] Verify battery pause/resume and CPU/GPU use. H.264 video decoding and panoramic playback passed a short smoke test on DP-2 and HDMI-A-2; both players reported 3958 ms at the four-second sample.
 - [x] Test HTTP failures, redirects, media size limit, and corrupt media (automated local HTTP server and ffprobe checks).
@@ -26,4 +27,4 @@ The marketplace's maintainers approve listings. A valid manifest alone does not 
 - Video thumbnails, search, favorites, playlists, scheduled rotation.
 - Per-monitor fit, focal point, brightness, mute/pause controls.
 - Coexistence controls for other wallpaper plugins without deleting their configuration.
-- Media decoder validation at import and visible renderer error reporting.
+- Expand decoder validation beyond stream inspection. Stream validation at import and visible playback errors are implemented.

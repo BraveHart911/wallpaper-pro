@@ -5,7 +5,19 @@
   "version": "0.2.0-alpha.1",
   "author": "BraveHart911",
   "description": "A personal image and live wallpaper library with independent monitor assignments and panoramic image spanning.",
-  "kinds": ["service", "overlay", "bar-widget"],
-  "entryPoints": {"service": "WallpaperService.qml", "overlay": "WallpaperPro.qml", "barWidget": "BarLauncher.qml"},
-  "barWidget": {"displayName": "Wallpaper Pro", "category": "Appearance", "defaultSection": "right", "allowMultiple": false}
+  "kinds": [
+    "overlay",
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "overlay": "WallpaperPro.qml",
+    "barWidget": "BarLauncher.qml"
+  },
+  "barWidget": {
+    "displayName": "Wallpaper Pro",
+    "category": "Appearance",
+    "defaultSection": "right",
+    "allowMultiple": false
+  },
+  "keepLoaded": true
 }
