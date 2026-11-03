@@ -60,6 +60,21 @@ Item {
             }
         }
     }
+    Process {
+        id: themePicker
+        command: ["omarchy", "theme", "switcher"]
+        stderr: StdioCollector {
+            onStreamFinished: if (text.trim()) root.operationError = text.trim()
+        }
+        onExited: function(code, status) {
+            if (code !== 0) root.operationError = "Omarchy's theme picker could not be opened."
+            else {
+                root.message = "Theme changed. Wallpaper Pro will refresh the theme palette and library."
+                theme.refresh()
+                if (root.automaticThemeSync) root.startThemeSync()
+            }
+        }
+    }
     property var shell
     property alias renderer: rendererService
     WallpaperService { id: rendererService }
@@ -268,6 +283,14 @@ Item {
                                     checked: root.librarySection === index
                                     onClicked: root.librarySection = index
                                 }
+                            }
+                            ProButton {
+                                Layout.fillWidth: true
+                                text: "◉   Theme picker"
+                                navigation: true
+                                checked: themePicker.running
+                                onClicked: if (!themePicker.running) themePicker.running = true
+                                Accessible.name: "Open Omarchy theme picker"
                             }
                             Item { Layout.fillHeight: true }
                             Label { text: "YOUR DISPLAYS"; color: theme.secondary; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.3; Layout.leftMargin: 12; Layout.bottomMargin: 10 }

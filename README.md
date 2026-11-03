@@ -2,13 +2,14 @@
 
 An Omarchy shell plugin for a personal image and live wallpaper collection.
 
-**Early development · 0.9.0-alpha.1.** This is a working foundation, not a marketplace release yet.
+**Early development · 0.9.0-alpha.2.** This is a working foundation, not a marketplace release yet.
 
 ## Current features
 
 - Browse 15 included wallpapers: six 1920 × 1080 images, six 3840 × 1080 panoramas, and three silent looping videos.
 - Filter by live wallpapers, single monitor, dual panorama, My imports, or Themes, and search by wallpaper or theme name.
 - Automatically discover installed Omarchy theme wallpapers and generate their thumbnails.
+- Open Omarchy’s full theme switcher from the left sidebar; the wallpaper library and palette follow the theme you choose.
 - Import local images and videos through a file picker, with automatically generated thumbnail images.
 - Add a folder to recursively import supported images and videos from every subfolder, with progress and duplicate detection.
 - Download direct HTTP/HTTPS media links into a private local collection.
