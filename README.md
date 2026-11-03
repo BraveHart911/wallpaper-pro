@@ -2,7 +2,7 @@
 
 An Omarchy shell plugin for a personal image and live wallpaper collection.
 
-**Early development · 0.6.0-alpha.1.** This is a working foundation, not a marketplace release yet.
+**Early development · 0.7.0-alpha.1.** This is a working foundation, not a marketplace release yet.
 
 ## Current features
 
@@ -61,6 +61,12 @@ The manager uses Omarchy’s background and text colors with a blue action accen
 Video pauses on the monitor occupied by a fullscreen application. Other monitors continue playing, and playback resumes when fullscreen ends. `fullscreen off` disables this behavior. Connector assignments survive unplug/replug; panoramic geometry uses logical output coordinates and handles empty layouts safely. Mixed scale, portrait, and negative positions are covered by geometry tests; physical hotplug and display sleep testing remain on the release checklist.
 
 The manager warns about potentially competing full-screen wallpaper surfaces. It reports these without stopping them; use one active live wallpaper renderer per screen. Run `python3 scripts/wallpaper-pro.py doctor` for the same read-only check. Diagnostics inspect Hyprland layers only when the manager opens or the command runs.
+
+## Sort by color
+
+Use the sort menu above the gallery to choose **Sort: color**, **Sort: name**, or the original library order. Color sorting follows dominant hue through the spectrum, then black/gray/white by brightness; previews without color metadata appear last. Each card includes a small color swatch, and its tooltip gives the color name.
+
+Colors are sampled from the actual thumbnail, including representative video frames. New imports are analyzed immediately. Existing items and theme wallpapers are analyzed by the background discovery process. Results are cached and refreshed when a thumbnail changes. The selected sort order is saved and applies within every category and search without changing wallpaper assignments.
 
 ## Automatic theme library
 

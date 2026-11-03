@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Wallpaper Pro's library and settings. Stdlib only; never evaluates shell input."""
 import argparse
+import colorsys
+import math
 import fcntl
 import hashlib
 import json
@@ -130,6 +132,100 @@ def ensure_thumbnails(state, data, force=False):
     return state
 
 
+COLOR_FIELDS = ('dominantColor', 'colorHue', 'colorValue', 'colorNeutral', 'colorName', 'colorFingerprint')
+
+
+def dominant_color(source):
+    result = subprocess.run(['ffmpeg', '-v', 'error', '-threads', '1', '-filter_threads', '1',
+                             '-protocol_whitelist', 'file,pipe', '-i', str(source),
+                             '-vf', 'scale=32:32', '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1'],
+                            capture_output=True, timeout=15, check=False)
+    if result.returncode or len(result.stdout) != 32 * 32 * 3:
+        raise ValueError('Could not analyze thumbnail colors')
+    groups = {}
+    raw = result.stdout
+    for offset in range(0, len(raw), 3):
+        rgb = tuple(channel / 255 for channel in raw[offset:offset + 3])
+        hue, saturation, value = colorsys.rgb_to_hsv(*rgb)
+        neutral = saturation < .12 or value < .10
+        group = 24 if neutral else int(hue * 24) % 24
+        weight = (.35 if neutral else .35 + .65 * saturation) * math.sqrt(max(.02, value))
+        sums = groups.setdefault(group, [0., 0., 0., 0.])
+        sums[0] += weight
+        for channel in range(3):
+            sums[channel + 1] += rgb[channel] * weight
+    group, sums = max(groups.items(), key=lambda pair: pair[1][0])
+    rgb = [channel / sums[0] for channel in sums[1:]]
+    hue, saturation, value = colorsys.rgb_to_hsv(*rgb)
+    degrees = hue * 360
+    if group == 24:
+        name = 'Black' if value < .15 else 'White' if value > .85 else 'Gray'
+    else:
+        name = next(label for boundary, label in [(15, 'Red'), (45, 'Orange'), (70, 'Yellow'), (165, 'Green'),
+                    (195, 'Cyan'), (255, 'Blue'), (285, 'Purple'), (345, 'Pink'), (361, 'Red')] if degrees < boundary)
+    return {'dominantColor': '#' + ''.join(f'{round(channel * 255):02x}' for channel in rgb),
+            'colorHue': round(degrees, 3), 'colorValue': round(value, 5), 'colorNeutral': group == 24, 'colorName': name}
+
+
+def thumbnail_path(media):
+    url = urllib.parse.urlparse(media.get('thumbnailUrl', ''))
+    return Path(urllib.request.url2pathname(url.path)) if url.scheme == 'file' else None
+
+
+def read_color_cache(data):
+    try:
+        value = json.loads((data / 'color-index.json').read_text())
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def apply_cached_colors(state, cache):
+    for media in state['library']:
+        path = thumbnail_path(media)
+        if path is None:
+            continue
+        try:
+            stat = path.stat()
+            fingerprint = [stat.st_size, stat.st_mtime_ns]
+        except OSError:
+            continue
+        entry = cache.get(str(path), {})
+        if entry.get('fingerprint') == fingerprint:
+            media.update(entry['colors'])
+            media['colorFingerprint'] = fingerprint
+    return state
+
+
+def analyze_library_colors(media_list, data, progress=None):
+    cache = read_color_cache(data)
+    updated = dict(cache)
+    for index, media in enumerate(media_list):
+        if progress and (index % 10 == 0 or index == len(media_list) - 1):
+            progress({'event': 'color-progress', 'done': index + 1, 'total': len(media_list)})
+        path = thumbnail_path(media)
+        if path is None:
+            continue
+        try:
+            stat = path.stat()
+            fingerprint = [stat.st_size, stat.st_mtime_ns]
+            old = updated.get(str(path), {})
+            if old.get('fingerprint') == fingerprint:
+                colors = old['colors']
+            elif media.get('colorFingerprint') == fingerprint and media.get('dominantColor'):
+                colors = {key: media[key] for key in COLOR_FIELDS if key in media and key != 'colorFingerprint'}
+            else:
+                colors = dominant_color(path)
+            media.update(colors)
+            media['colorFingerprint'] = fingerprint
+            updated[str(path)] = {'fingerprint': fingerprint, 'colors': colors}
+        except (OSError, ValueError, subprocess.SubprocessError):
+            continue
+    if updated != cache:
+        save(data / 'color-index.json', updated)
+    return updated
+
+
 def import_media(source, data):
     """Copy media into managed storage; remote sources must be direct media URLs."""
     library = data / 'library'
@@ -174,12 +270,16 @@ def import_media(source, data):
         destination = library / (identity + suffix)
         kind = 'image' if suffix in IMAGE else 'video'
         thumbnail_url = generate_thumbnail(temporary, kind, data, identity)
+        thumbnail = Path(urllib.request.url2pathname(urllib.parse.urlparse(thumbnail_url).path))
+        colors = dominant_color(thumbnail)
+        stat = thumbnail.stat()
+        colors['colorFingerprint'] = [stat.st_size, stat.st_mtime_ns]
         os.replace(temporary, destination)
         return {'id': identity, 'name': name, 'path': str(destination.resolve()),
                 'url': destination.resolve().as_uri(), 'kind': kind, 'thumbnailUrl': thumbnail_url,
                 'source': source if remote else str(source_path.resolve()),
                 'layout': 'panoramic' if dimensions['width'] / dimensions['height'] >= 2.7 else 'single',
-                **dimensions}
+                **dimensions, **colors}
     finally:
         if temporary:
             temporary.unlink(missing_ok=True)
@@ -192,6 +292,7 @@ def refresh_import(existing, media):
         existing.pop('themeMissing', None)
     else:
         existing['thumbnailUrl'] = media['thumbnailUrl']
+    existing.update({key: media[key] for key in COLOR_FIELDS if key in media})
     existing.pop('thumbnailError', None)
 
 
@@ -295,6 +396,8 @@ def update(state, args, data):
         state['pauseOnFullscreen'] = args.value == 'on'
     elif args.command == 'battery':
         state['pauseOnBattery'] = args.value == 'on'
+    elif args.command == 'sort':
+        state['sortOrder'] = args.order
     elif args.command == 'off':
         state['enabled'] = False
     elif args.command == 'remove':
@@ -429,10 +532,13 @@ def sync_themes(config, data, progress=None):
         discovery = discover_theme_library(data, cache=cache, progress=progress, checkpoint=lambda value: save(cache_path, value))
         if discovery['cache'] != cache:
             save(cache_path, discovery['cache'])
+        snapshot = with_starter_library(load(config / 'settings.json'))
+        samples = {media['thumbnailUrl']: media for media in discovery['library'] + snapshot['library'] if media.get('thumbnailUrl')}
+        color_cache = analyze_library_colors(list(samples.values()), data, progress)
         with (config / '.lock').open('w') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             path = config / 'settings.json'
-            state = merge_theme_library(with_starter_library(load(path)), discovery)
+            state = apply_cached_colors(merge_theme_library(with_starter_library(load(path)), discovery), color_cache)
             if not path.exists() or json.loads(path.read_text()) != state:
                 save(path, state)
             return state
@@ -478,6 +584,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
     commands.add_parser('status')
+    sorting = commands.add_parser('sort')
+    sorting.add_argument('order', choices=['original', 'name', 'color'])
     themes = commands.add_parser('sync-themes', help='Discover wallpapers in installed Omarchy themes')
     themes.add_argument('--progress', action='store_true')
     thumbnails = commands.add_parser('thumbnails')
@@ -515,7 +623,7 @@ def main():
     with (config / '.lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         path = config / 'settings.json'
-        state = with_starter_library(load(path))
+        state = apply_cached_colors(with_starter_library(load(path)), read_color_cache(data))
         if args.command in ('status', 'thumbnails'):
             state = ensure_thumbnails(state, data, getattr(args, 'force', False))
         if args.command == 'import-folder':

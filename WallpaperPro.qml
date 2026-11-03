@@ -6,6 +6,7 @@ import QtQuick.Dialogs
 import Quickshell
 import Quickshell.Io
 import "ui"
+import "js/Library.js" as Library
 
 Item {
     id: root
@@ -38,6 +39,7 @@ Item {
             onRead: function(line) {
                 try {
                     const result = JSON.parse(line)
+                    if (result.event === "color-progress") root.themeSyncMessage = "Analyzing wallpaper colors · " + result.done + " of " + result.total
                     if (result.event === "theme-progress") root.themeSyncMessage = "Discovering theme wallpapers · " + result.done + " of " + result.total
                 } catch (e) { }
             }
@@ -78,12 +80,14 @@ Item {
     property string selected: ""
     property int librarySection: 0
     property string searchQuery: ""
+    readonly property string sortOrder: state.sortOrder || "original"
+    readonly property var sortKeys: ["original", "name", "color"]
     onLibrarySectionChanged: selected = ""
-    readonly property var filteredLibrary: (state.library || []).filter(item => {
+    readonly property var filteredLibrary: Library.ordered((state.library || []).filter(item => {
         const layout = item.layout || ((item.width || 0) / (item.height || 1) >= 2.7 ? "panoramic" : "single")
         const matchesSection = librarySection === 0 || (librarySection === 1 && item.kind === "video") || (librarySection === 2 && layout === "single") || (librarySection === 3 && layout === "panoramic") || (librarySection === 4 && !item.bundled && !item.themeManaged) || (librarySection === 5 && (item.themes || []).length > 0)
         return matchesSection && (String(item.name || "") + " " + (item.themes || []).join(" ")).toLowerCase().indexOf(searchQuery.toLowerCase()) !== -1
-    })
+    }), sortOrder)
     readonly property var selectedMedia: (state.library || []).find(item => item.id === selected) || null
     function selectMedia(item) {
         selected = item.id
@@ -288,16 +292,19 @@ Item {
                             RowLayout {
                                 Layout.fillWidth: true
                                 ColumnLayout {
+                                    Layout.fillWidth: true
                                     spacing: 7
-                                    Label { text: root.librarySection === 0 ? "Your collection" : root.sections[root.librarySection]; font.pixelSize: 27; font.weight: Font.DemiBold; color: theme.colors.foreground }
-                                    Label { text: root.filteredLibrary.length + " wallpapers. A fresh perspective for every screen."; font.pixelSize: 12; color: theme.secondary }
+                                    Label { text: root.librarySection === 0 ? "Your collection" : root.sections[root.librarySection]; font.pixelSize: 27; font.weight: Font.DemiBold; color: theme.colors.foreground; Layout.fillWidth: true; elide: Text.ElideRight }
+                                    Label { text: root.filteredLibrary.length + " wallpapers. A fresh perspective for every screen."; font.pixelSize: 12; color: theme.secondary; Layout.fillWidth: true; elide: Text.ElideRight }
                                 }
                                 Item { Layout.fillWidth: true }
-                                Rectangle {
-                                    visible: !root.compact
-                                    implicitWidth: 94; implicitHeight: 28; radius: 14
-                                    color: Qt.rgba(0.18,0.78,0.51,0.1)
-                                    Label { anchors.centerIn: parent; text: "●  On device"; font.pixelSize: 10; color: root.dark ? "#74d7a6" : "#237d53" }
+                                ProCombo {
+                                    Layout.preferredWidth: 150
+                                    model: ["Sort: original", "Sort: name", "Sort: color"]
+                                    currentIndex: Math.max(0, root.sortKeys.indexOf(root.sortOrder))
+                                    enabled: !worker.running
+                                    onActivated: root.run(["sort", root.sortKeys[currentIndex]])
+                                    Accessible.name: "Sort wallpapers"
                                 }
                             }
                             RowLayout {
@@ -396,10 +403,17 @@ Item {
                                                 }
                                             }
                                             ColumnLayout {
-                                                anchors { left: parent.left; right: parent.right; top: picture.bottom; margins: 10; topMargin: 9 }
+                                                anchors { left: parent.left; right: parent.right; top: picture.bottom; margins: 10; topMargin: 9; rightMargin: 24 }
                                                 spacing: 3
                                                 Label { text: root.displayName(card.modelData); font.pixelSize: 12; font.weight: Font.Medium; color: theme.colors.foreground; elide: Text.ElideRight; Layout.fillWidth: true }
                                                 Label { text: root.mediaSubtitle(card.modelData); font.pixelSize: 10; color: theme.secondary; elide: Text.ElideRight; Layout.fillWidth: true }
+                                            }
+                                            Rectangle {
+                                                anchors { right: parent.right; bottom: parent.bottom; margins: 12 }
+                                                width: 7; height: 7; radius: 4
+                                                visible: !!card.modelData.dominantColor
+                                                color: card.modelData.dominantColor || "transparent"
+                                                border.color: Qt.rgba(0.5,0.5,0.5,0.35)
                                             }
                                             MouseArea {
                                                 id: cardMouse
@@ -411,7 +425,7 @@ Item {
                                             }
                                             ToolTip.visible: cardMouse.containsMouse
                                             ToolTip.delay: 700
-                                            ToolTip.text: card.modelData.name
+                                            ToolTip.text: card.modelData.name + (card.modelData.colorName ? " · " + card.modelData.colorName : "")
                                         }
                                     }
                                     Label { anchors.centerIn: parent; visible: !root.filteredLibrary.length; text: "No wallpapers here yet.\nAdd a file, folder, or web link to get started."; color: theme.secondary; horizontalAlignment: Text.AlignHCenter; lineHeight: 1.6; font.pixelSize: 13 }
