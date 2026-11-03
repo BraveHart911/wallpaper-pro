@@ -425,10 +425,21 @@ Item {
                                 visible: root.librarySection !== 7
                                 Layout.fillWidth: true
                                 ColumnLayout {
-                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: 220
                                     spacing: 7
                                     Label { text: root.librarySection === 0 ? "Your collection" : root.sections[root.librarySection]; font.pixelSize: 27; font.weight: Font.DemiBold; color: theme.colors.foreground; Layout.fillWidth: true; elide: Text.ElideRight }
                                     Label { text: root.filteredLibrary.length + " wallpapers. A fresh perspective for every screen."; font.pixelSize: 12; color: theme.secondary; Layout.fillWidth: true; elide: Text.ElideRight }
+                                }
+                                Item { Layout.fillWidth: true }
+                                ProSegmented {
+                                    visible: root.librarySection === 1 && !root.compact
+                                    Layout.preferredWidth: 264
+                                    options: ["All live", "Dual monitor"]
+                                    selectedIndex: root.liveDualOnly ? 1 : 0
+                                    accent: theme.colors.accent || "#0a84ff"
+                                    foreground: theme.colors.foreground
+                                    secondary: theme.secondary
+                                    onActivated: function(index) { root.liveDualOnly = index === 1 }
                                 }
                                 Item { Layout.fillWidth: true }
                                 ProCombo {
@@ -448,16 +459,18 @@ Item {
                             onTextEdited: root.searchQuery = text }
                             }
                             RowLayout {
-                                visible: root.librarySection === 1
+                                visible: root.librarySection === 1 && root.compact
                                 Layout.fillWidth: true
-                                ProCheck {
-                                    text: "Show dual-monitor wallpapers only"
-                                    checked: root.liveDualOnly
-                                    onClicked: root.liveDualOnly = checked
-                                    Accessible.name: "Show only panoramic live wallpapers for dual monitors"
+                                ProSegmented {
+                                    Layout.alignment: Qt.AlignHCenter
+                                    Layout.preferredWidth: Math.min(280, parent.width)
+                                    options: ["All live", "Dual monitor"]
+                                    selectedIndex: root.liveDualOnly ? 1 : 0
+                                    accent: theme.colors.accent || "#0a84ff"
+                                    foreground: theme.colors.foreground
+                                    secondary: theme.secondary
+                                    onActivated: function(index) { root.liveDualOnly = index === 1 }
                                 }
-                                Item { Layout.fillWidth: true }
-                                Label { text: root.liveDualOnly ? "Panoramic videos" : "All live wallpapers"; color: theme.secondary; font.pixelSize: 11 }
                             }
                             Rectangle {
                                 visible: root.operationError !== "" || !!root.state.contextError || root.themeSyncError !== "" || themeSync.running || worker.running || root.folderErrors !== "" || root.playbackErrors !== "" || root.compatibilityWarning !== "" || root.pendingCommand === "import-folder"
