@@ -5,8 +5,6 @@ import QtQuick.Layouts
 import QtQuick.Dialogs
 import Quickshell
 import Quickshell.Io
-import Quickshell.Hyprland
-import Quickshell.Wayland
 
 Item {
     id: root
@@ -28,6 +26,7 @@ Item {
     WallpaperService { id: rendererService }
     property var manifest
     property bool opened: false
+    readonly property bool compact: panel.width < 850
     property var state: ({library: []})
     property string selected: ""
     property int librarySection: 0
@@ -53,14 +52,16 @@ Item {
     }
     function open(payload) {
         if (!Quickshell.screens.length) return
-        const focused = Hyprland.focusedMonitor
-        panel.screen = Quickshell.screens.find(screen => focused && screen.name === focused.name) || Quickshell.screens[0]
         opened = true
         theme.refresh()
         if (!desktopCheck.running) desktopCheck.running = true
         run(["status"])
     }
-    function close() { opened = false }
+    function close() {
+        if (!opened) return
+        opened = false
+        if (shell && typeof shell.hide === "function") shell.hide("bravehart911.wallpaper-pro")
+    }
     function assignment(name) {
         const id = state.mode === "individual" ? (state.assignments || {})[name] : state.default
         const media = (state.library || []).find(item => item.id === id)
@@ -89,16 +90,15 @@ Item {
         nameFilters: ["Wallpaper media (*.jpg *.jpeg *.png *.webp *.bmp *.avif *.mp4 *.webm *.mkv *.mov *.m4v)"]
         onAccepted: root.run(["import", selectedFile.toString()])
     }
-    PanelWindow {
+    FloatingWindow {
         id: panel
+        title: "Wallpaper Pro"
+        minimumSize: Qt.size(540, 560)
+        onClosed: root.close()
         visible: root.opened
-        implicitWidth: screen ? Math.min(1040, screen.width - 48) : 1040
-        implicitHeight: screen ? Math.min(800, screen.height - 64) : 800
+        implicitWidth: 1040
+        implicitHeight: 800
         color: theme.colors.background
-        WlrLayershell.namespace: "wallpaper-pro-manager"
-        WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
-        WlrLayershell.layer: WlrLayer.Top
-        exclusionMode: ExclusionMode.Ignore
         Pane {
             anchors.fill: parent
             padding: 0
@@ -114,18 +114,18 @@ Item {
             palette.placeholderText: theme.secondary
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 28
+                anchors.margins: root.compact ? 16 : 28
                 spacing: 16
                 focus: true
                 Keys.onEscapePressed: root.close()
                 RowLayout {
                     Layout.fillWidth: true
                     ColumnLayout {
-                        Label { text: "WALLPAPER PRO"; color: theme.colors.foreground; font.pixelSize: 28; font.bold: true }
-                        Label { text: "Your collection. Every screen."; color: theme.secondary }
+                        Label { text: "WALLPAPER PRO"; color: theme.colors.foreground; font.pixelSize: root.compact ? 22 : 28; font.bold: true }
+                        Label { visible: !root.compact; text: "Your collection. Every screen."; color: theme.secondary }
                     }
                     Item { Layout.fillWidth: true }
-                    Button { text: "Use Omarchy wallpaper"; enabled: !worker.running; onClicked: root.run(["off"]) }
+                    Button { text: root.compact ? "Desktop default" : "Use Omarchy wallpaper"; enabled: !worker.running; onClicked: root.run(["off"]) }
                     Button { text: "Close"; onClicked: root.close() }
                 }
                 RowLayout {
@@ -173,6 +173,7 @@ Item {
                         delegate: Button {
                             required property int index
                             required property string modelData
+                            visible: !root.compact
                             text: modelData
                             checkable: true
                             checked: root.librarySection === index
@@ -180,6 +181,13 @@ Item {
                         }
                     }
                     Item { Layout.fillWidth: true }
+                    ComboBox {
+                        visible: root.compact
+                        Layout.fillWidth: true
+                        model: ["All wallpapers", "Videos", "Single monitor", "Dual panorama", "My imports"]
+                        currentIndex: root.librarySection
+                        onActivated: root.librarySection = currentIndex
+                    }
                     TextField { Layout.preferredWidth: 180; placeholderText: "Search wallpapers"; onTextChanged: root.searchQuery = text }
                 }
                 Label {
@@ -200,7 +208,7 @@ Item {
                     GridView {
                         id: gallery
                         model: root.filteredLibrary
-                        cellWidth: Math.max(200, width / 3)
+                        cellWidth: width / Math.max(1, Math.floor(width / 240))
                         cellHeight: 192
                         delegate: Item {
                             id: card
@@ -229,7 +237,7 @@ Item {
                     }
                 }
                 RowLayout {
-                    ComboBox { id: mode; implicitWidth: 210; model: ["Individual monitor", "All monitors", "Panoramic (experimental)"] }
+                    ComboBox { id: mode; implicitWidth: root.compact ? 180 : 210; model: ["Individual monitor", "All monitors", "Panoramic (experimental)"] }
                     ComboBox { id: monitor; model: Quickshell.screens.map(s => s.name); enabled: mode.currentIndex === 0; Layout.fillWidth: true }
                     Button {
                         text: "Apply wallpaper"
@@ -237,7 +245,9 @@ Item {
                         onClicked: root.run(["apply", root.selected, "--mode", ["individual", "all", "span"][mode.currentIndex], "--monitor", monitor.currentText])
                     }
                 }
-                RowLayout {
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: 8
                     CheckBox {
                         text: "Pause video on battery"
                         checked: root.state.pauseOnBattery !== false
@@ -250,7 +260,6 @@ Item {
                         enabled: !worker.running
                         onClicked: root.run(["fullscreen", checked ? "on" : "off"])
                     }
-                    Item { Layout.fillWidth: true }
                     Button { text: "Clear monitor"; enabled: mode.currentIndex === 0 && !worker.running; onClicked: root.run(["unassign", monitor.currentText]) }
                     Button { text: "Remove selected"; enabled: root.selectedMedia !== null && !root.selectedMedia.bundled && !worker.running; onClicked: root.run(["remove", root.selected]) }
                 }

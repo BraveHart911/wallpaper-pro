@@ -2,7 +2,7 @@
 
 An Omarchy shell plugin for a personal image and live wallpaper collection.
 
-**Early development · 0.3.1-alpha.1.** This is a working foundation, not a marketplace release yet.
+**Early development · 0.3.2-alpha.1.** This is a working foundation, not a marketplace release yet.
 
 ## Current features
 
@@ -14,7 +14,7 @@ An Omarchy shell plugin for a personal image and live wallpaper collection.
 - Repeat one image or video on all connected monitors.
 - Span a panoramic image or video across the desktop's logical monitor layout.
 - Pause video on battery power and behind fullscreen apps (per monitor).
-- Follow Omarchy’s colors and open the manager on the focused Hyprland monitor.
+- Follow Omarchy’s colors and open the manager as a normal tiled Hyprland application window.
 - Turn off Wallpaper Pro to reveal the wallpaper underneath.
 - Keep library and assignments across shell restarts; reconnecting displays use their connector assignments.
 
@@ -45,6 +45,8 @@ The manager stays loaded when closed so wallpapers continue playing. Disabling t
 ## Hyprland and Omarchy compatibility
 
 Wallpaper surfaces stay on the bottom layer, accept no keyboard focus, and have an empty input region so mouse actions pass through. They reserve no screen space and stay below application windows, bars, menus, and lock surfaces. Wallpaper Pro does not change Hyprland settings, startup commands, theme files, idle settings, or other plugins, and never kills other wallpaper processes.
+
+The manager is a regular Wayland application window, so Hyprland controls its tiling, movement, resizing, workspace placement, and fullscreen state. Closing it with the window-manager shortcut keeps wallpapers running, and the bar icon reopens it. The gallery and controls adapt to narrower tiles.
 
 The manager uses Omarchy’s current palette; theme changes update its colors without overriding the wallpaper you selected. **Use Omarchy wallpaper** removes Wallpaper Pro’s wallpaper surfaces and video players, revealing the stock or custom background provider underneath. Omarchy theme and workspace wallpapers can continue updating underneath while Wallpaper Pro is active.
 
@@ -88,5 +90,7 @@ WALLPAPER_PRO_SMOKE_KIND=video WALLPAPER_PRO_SMOKE_MEDIA=file:///absolute/path/t
 A full installed-plugin session test is available with `python3 tests/integration_session.py`. It requires two monitors, temporarily switches wallpapers, generates its own fixtures, and restores the exact original settings in a `finally` block. It is a manual graphical-session test, separate from CI.
 
 A manual fullscreen test, `python3 tests/fullscreen_session.py`, creates its own temporary window, verifies per-monitor pause/resume, then restores wallpaper settings and focus. It never changes your existing applications’ fullscreen state.
+
+Run `python3 tests/window_session.py` to check that the installed manager is a tiled client, has no manager layer-shell surface, and can be closed by Hyprland and reopened through plugin toggle.
 
 See [release checklist](docs/RELEASE.md) for remaining integration testing and marketplace steps. The original starter artwork and videos in `assets/library/` are bundled under this repository’s MIT license. Rebuild them with `python3 scripts/build-starter-library.py` (ffmpeg required). The library appears automatically without changing your active wallpaper. Panoramic selections automatically choose spanning mode; you still click Apply to change the desktop. Import only media you have permission to use.

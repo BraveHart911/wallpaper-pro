@@ -2,12 +2,13 @@
 
 ## Before marketplace submission
 
-- [x] Valid root Omarchy manifest, persistent overlay with an embedded renderer, and bar entry point.
+- [x] Valid root Omarchy manifest, persistent panel hosting a native application window with an embedded renderer, and bar entry point.
 - [x] Python library tests and GitHub Actions workflow.
 - [x] QML components load in an isolated Quickshell harness.
 - [x] GitHub owner: BraveHart911; plugin namespace: bravehart911.wallpaper-pro; MIT license attributed to Leif.
 - [x] Test installation, enable/disable lifecycle, shell restart, and IPC summon inside Omarchy.
 - [ ] Test the actual bar-button click with the selected replacement bar.
+- [ ] Verify native tiled client registration and compositor close/bar-toggle reopen using `tests/window_session.py`.
 - [ ] Visually verify local file picker, imports, failure messages, and keyboard flow.
 - [x] Test independent image/video assignments, all-monitor video, panoramic video, looping, and off/decoder cleanup on DP-2 and HDMI-A-2. Original settings restored after testing.
 - [x] Test empty, negative-position, mixed logical dimensions, and portrait layout calculations.
