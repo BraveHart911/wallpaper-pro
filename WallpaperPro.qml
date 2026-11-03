@@ -16,6 +16,19 @@ Item {
     property bool opened: false
     property var state: ({library: []})
     property string selected: ""
+    property int librarySection: 0
+    property string searchQuery: ""
+    onLibrarySectionChanged: selected = ""
+    readonly property var filteredLibrary: (state.library || []).filter(item => {
+        const layout = item.layout || ((item.width || 0) / (item.height || 1) >= 2.7 ? "panoramic" : "single")
+        const matchesSection = librarySection === 0 || (librarySection === 1 && item.kind === "video") || (librarySection === 2 && layout === "single") || (librarySection === 3 && layout === "panoramic") || (librarySection === 4 && !item.bundled)
+        return matchesSection && String(item.name || "").toLowerCase().indexOf(searchQuery.toLowerCase()) !== -1
+    })
+    readonly property var selectedMedia: (state.library || []).find(item => item.id === selected) || null
+    function selectMedia(item) {
+        selected = item.id
+        mode.currentIndex = item.layout === "panoramic" ? 2 : 0
+    }
     readonly property string playbackErrors: rendererService.players.map(player => player.errorString ? player.monitorName + ": " + player.errorString : "").filter(text => text !== "").join(" · ")
     property string message: "Add an image or video to get started."
     readonly property string script: decodeURIComponent(Qt.resolvedUrl("scripts/wallpaper-pro.py").toString().replace(/^file:\/\//, ""))
@@ -110,9 +123,29 @@ Item {
                     }
                 }
             }
+            RowLayout {
+                Layout.fillWidth: true
+                Repeater {
+                    model: ["All wallpapers", "Videos", "Single monitor", "Dual panorama", "My imports"]
+                    delegate: Button {
+                        required property int index
+                        required property string modelData
+                        text: modelData
+                        checkable: true
+                        checked: root.librarySection === index
+                        onClicked: root.librarySection = index
+                    }
+                }
+                Item { Layout.fillWidth: true }
+                TextField { Layout.preferredWidth: 180; placeholderText: "Search wallpapers"; onTextChanged: root.searchQuery = text }
+            }
             Label {
-                visible: !(root.state.library || []).length
-                text: "Start your collection with a local image, a video, or a direct web link."
+                text: root.filteredLibrary.length + " wallpapers · Select a card, then apply to your screen or both monitors."
+                color: "#a4b4c4"
+            }
+            Label {
+                visible: !root.filteredLibrary.length
+                text: "No matching wallpapers. Add a local file or direct web link, or try another category."
                 color: "#a4b4c4"
                 Layout.fillWidth: true
                 wrapMode: Text.Wrap
@@ -123,9 +156,9 @@ Item {
                 clip: true
                 GridView {
                     id: gallery
-                    model: root.state.library || []
+                    model: root.filteredLibrary
                     cellWidth: Math.max(200, width / 3)
-                    cellHeight: 174
+                    cellHeight: 192
                     delegate: Item {
                         id: card
                         required property var modelData
@@ -137,10 +170,17 @@ Item {
                             color: "#1d2935"
                             border.width: root.selected === card.modelData.id ? 2 : 1
                             border.color: root.selected === card.modelData.id ? "#7ce2c0" : "#344452"
-                            Image { anchors { top: parent.top; left: parent.left; right: parent.right; margins: 8 } height: 100; source: card.modelData.kind === "image" ? card.modelData.url : ""; fillMode: Image.PreserveAspectFit; asynchronous: true }
-                            Label { anchors.centerIn: parent; visible: card.modelData.kind === "video"; text: "▶  LIVE VIDEO"; color: "#7ce2c0" }
-                            Label { anchors { bottom: parent.bottom; left: parent.left; right: parent.right; margins: 12 } text: card.modelData.name; elide: Text.ElideRight; color: "#f1f5f9" }
-                            MouseArea { anchors.fill: parent; onClicked: root.selected = card.modelData.id }
+                            Image { anchors { top: parent.top; left: parent.left; right: parent.right; margins: 8 } height: 100; source: card.modelData.thumbnailUrl || (card.modelData.kind === "image" ? card.modelData.url : ""); fillMode: Image.PreserveAspectFit; asynchronous: true }
+                            Label { anchors.centerIn: parent; visible: card.modelData.kind === "video" && !card.modelData.thumbnailUrl; text: "▶  LIVE VIDEO"; color: "#7ce2c0" }
+                            Label { anchors { bottom: parent.bottom; left: parent.left; right: parent.right; margins: 12; bottomMargin: 30 } text: card.modelData.name; elide: Text.ElideRight; color: "#f1f5f9" }
+                            Label {
+                                anchors { bottom: parent.bottom; left: parent.left; right: parent.right; margins: 12 }
+                                text: (card.modelData.kind === "video" ? "VIDEO · " : "") + (card.modelData.layout === "panoramic" ? "DUAL PANORAMA" : "SINGLE MONITOR") + (card.modelData.width ? " · " + card.modelData.width + " × " + card.modelData.height : "")
+                                color: "#7ce2c0"
+                                font.pixelSize: 10
+                                elide: Text.ElideRight
+                            }
+                            MouseArea { anchors.fill: parent; onClicked: root.selectMedia(card.modelData) }
                         }
                     }
                 }
@@ -163,7 +203,7 @@ Item {
                 }
                 Item { Layout.fillWidth: true }
                 Button { text: "Clear monitor"; enabled: mode.currentIndex === 0 && !worker.running; onClicked: root.run(["unassign", monitor.currentText]) }
-                Button { text: "Remove selected"; enabled: root.selected !== "" && !worker.running; onClicked: root.run(["remove", root.selected]) }
+                Button { text: "Remove selected"; enabled: root.selectedMedia !== null && !root.selectedMedia.bundled && !worker.running; onClicked: root.run(["remove", root.selected]) }
             }
             Label { text: "Videos loop silently. Panoramic mode spans images or video. Video timing is drift-corrected, not frame locked. Turn off restores the wallpaper underneath."; Layout.fillWidth: true; wrapMode: Text.Wrap; color: "#a4b4c4" }
         }

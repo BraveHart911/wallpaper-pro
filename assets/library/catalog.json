@@ -1,0 +1,152 @@
+[
+  {
+    "id": "starter-northern-lights-single",
+    "name": "Northern Lights",
+    "file": "northern-lights-single.jpg",
+    "thumbnail": "northern-lights-single-thumb.jpg",
+    "kind": "image",
+    "layout": "single",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "starter-northern-lights-panoramic",
+    "name": "Northern Lights",
+    "file": "northern-lights-panoramic.jpg",
+    "thumbnail": "northern-lights-panoramic-thumb.jpg",
+    "kind": "image",
+    "layout": "panoramic",
+    "width": 3840,
+    "height": 1080
+  },
+  {
+    "id": "starter-ember-dunes-single",
+    "name": "Ember Dunes",
+    "file": "ember-dunes-single.jpg",
+    "thumbnail": "ember-dunes-single-thumb.jpg",
+    "kind": "image",
+    "layout": "single",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "starter-ember-dunes-panoramic",
+    "name": "Ember Dunes",
+    "file": "ember-dunes-panoramic.jpg",
+    "thumbnail": "ember-dunes-panoramic-thumb.jpg",
+    "kind": "image",
+    "layout": "panoramic",
+    "width": 3840,
+    "height": 1080
+  },
+  {
+    "id": "starter-midnight-peaks-single",
+    "name": "Midnight Peaks",
+    "file": "midnight-peaks-single.jpg",
+    "thumbnail": "midnight-peaks-single-thumb.jpg",
+    "kind": "image",
+    "layout": "single",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "starter-midnight-peaks-panoramic",
+    "name": "Midnight Peaks",
+    "file": "midnight-peaks-panoramic.jpg",
+    "thumbnail": "midnight-peaks-panoramic-thumb.jpg",
+    "kind": "image",
+    "layout": "panoramic",
+    "width": 3840,
+    "height": 1080
+  },
+  {
+    "id": "starter-ocean-glass-single",
+    "name": "Ocean Glass",
+    "file": "ocean-glass-single.jpg",
+    "thumbnail": "ocean-glass-single-thumb.jpg",
+    "kind": "image",
+    "layout": "single",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "starter-ocean-glass-panoramic",
+    "name": "Ocean Glass",
+    "file": "ocean-glass-panoramic.jpg",
+    "thumbnail": "ocean-glass-panoramic-thumb.jpg",
+    "kind": "image",
+    "layout": "panoramic",
+    "width": 3840,
+    "height": 1080
+  },
+  {
+    "id": "starter-solar-bloom-single",
+    "name": "Solar Bloom",
+    "file": "solar-bloom-single.jpg",
+    "thumbnail": "solar-bloom-single-thumb.jpg",
+    "kind": "image",
+    "layout": "single",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "starter-solar-bloom-panoramic",
+    "name": "Solar Bloom",
+    "file": "solar-bloom-panoramic.jpg",
+    "thumbnail": "solar-bloom-panoramic-thumb.jpg",
+    "kind": "image",
+    "layout": "panoramic",
+    "width": 3840,
+    "height": 1080
+  },
+  {
+    "id": "starter-indigo-horizon-single",
+    "name": "Indigo Horizon",
+    "file": "indigo-horizon-single.jpg",
+    "thumbnail": "indigo-horizon-single-thumb.jpg",
+    "kind": "image",
+    "layout": "single",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "starter-indigo-horizon-panoramic",
+    "name": "Indigo Horizon",
+    "file": "indigo-horizon-panoramic.jpg",
+    "thumbnail": "indigo-horizon-panoramic-thumb.jpg",
+    "kind": "image",
+    "layout": "panoramic",
+    "width": 3840,
+    "height": 1080
+  },
+  {
+    "id": "starter-northern-lights-drift",
+    "name": "Northern Lights \u00b7 Slow Drift",
+    "file": "northern-lights-drift.mp4",
+    "thumbnail": "northern-lights-panoramic-thumb.jpg",
+    "kind": "video",
+    "layout": "panoramic",
+    "width": 3840,
+    "height": 1080
+  },
+  {
+    "id": "starter-ember-dunes-drift",
+    "name": "Ember Dunes \u00b7 Slow Drift",
+    "file": "ember-dunes-drift.mp4",
+    "thumbnail": "ember-dunes-single-thumb.jpg",
+    "kind": "video",
+    "layout": "single",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "starter-midnight-peaks-drift",
+    "name": "Midnight Peaks \u00b7 Slow Drift",
+    "file": "midnight-peaks-drift.mp4",
+    "thumbnail": "midnight-peaks-panoramic-thumb.jpg",
+    "kind": "video",
+    "layout": "panoramic",
+    "width": 3840,
+    "height": 1080
+  }
+]

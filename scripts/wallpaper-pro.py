@@ -71,6 +71,7 @@ def validate_media(path):
         streams = json.loads(result.stdout or '{}').get('streams', [])
         if result.returncode or not streams or streams[0].get('width', 0) <= 0 or streams[0].get('height', 0) <= 0:
             raise ValueError('This file has no readable image or video stream')
+        return {key: streams[0][key] for key in ('width', 'height')}
     except subprocess.TimeoutExpired as error:
         raise ValueError('Media inspection timed out') from error
 
@@ -114,16 +115,36 @@ def import_media(source, data):
                     target.write(chunk)
             if not size:
                 raise ValueError('Media is empty')
-        validate_media(temporary)
+        dimensions = validate_media(temporary)
         identity = digest.hexdigest()
         destination = library / (identity + suffix)
         os.replace(temporary, destination)
         return {'id': identity, 'name': name, 'path': str(destination.resolve()),
                 'url': destination.resolve().as_uri(), 'kind': 'image' if suffix in IMAGE else 'video',
-                'source': source if remote else str(source_path.resolve())}
+                'source': source if remote else str(source_path.resolve()),
+                'layout': 'panoramic' if dimensions['width'] / dimensions['height'] >= 2.7 else 'single',
+                **dimensions}
     finally:
         if temporary:
             temporary.unlink(missing_ok=True)
+
+
+def with_starter_library(state, root=None):
+    library_root = (root or Path(__file__).resolve().parents[1]) / 'assets/library'
+    catalog_path = library_root / 'catalog.json'
+    if not catalog_path.exists():
+        return state
+    starters = []
+    for entry in json.loads(catalog_path.read_text()):
+        path = (library_root / entry['file']).resolve()
+        thumbnail = (library_root / entry['thumbnail']).resolve()
+        if not path.is_file() or not thumbnail.is_file():
+            continue
+        starters.append({**entry, 'path': str(path), 'url': path.as_uri(),
+                         'thumbnailUrl': thumbnail.as_uri(), 'bundled': True,
+                         'source': 'Wallpaper Pro original starter collection'})
+    state['library'] = starters + [item for item in state['library'] if not item.get('bundled')]
+    return state
 
 
 def update(state, args, data):
@@ -152,6 +173,8 @@ def update(state, args, data):
     elif args.command == 'off':
         state['enabled'] = False
     elif args.command == 'remove':
+        if any(item['id'] == args.id and item.get('bundled') for item in state['library']):
+            raise ValueError('Starter wallpapers stay in the collection. Filter to My imports for your own media.')
         # Forget the entry; never delete original files or currently assigned media.
         if args.id == state['default'] or args.id in state['assignments'].values():
             raise ValueError('This wallpaper is assigned. Assign another wallpaper before removing it.')
@@ -182,7 +205,7 @@ def main():
     with (config / '.lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         path = config / 'settings.json'
-        state = load(path)
+        state = with_starter_library(load(path))
         if args.command != 'status':
             state = update(state, args, data)
         save(path, state)

@@ -2,10 +2,12 @@
 
 An Omarchy shell plugin for a personal image and live wallpaper collection.
 
-**Early development · 0.2.0-alpha.1.** This is a working foundation, not a marketplace release yet.
+**Early development · 0.3.0-alpha.1.** This is a working foundation, not a marketplace release yet.
 
 ## Current features
 
+- Browse 15 included wallpapers: six 1920 × 1080 images, six 3840 × 1080 panoramas, and three silent looping videos.
+- Filter by Videos, Single monitor, Dual panorama, or My imports, and search by name.
 - Import local images and videos through a file picker.
 - Download direct HTTP/HTTPS media links into a private local collection.
 - Assign a different image or looping, muted video to each monitor.
@@ -17,7 +19,7 @@ An Omarchy shell plugin for a personal image and live wallpaper collection.
 
 Multi-monitor videos use separate players and a shared playback timeline, checking for drift every 500 ms and seeking when drift exceeds 150 ms. Panoramic video is **experimental and not frame locked**; monitor seams may show timing differences. Web imports require a direct media URL with a supported file extension; YouTube, Steam Workshop, Wallpaper Engine projects, HTML pages, and provider galleries are not supported.
 
-![Wallpaper Pro manager in a two-monitor playback smoke test](docs/images/manager.png)
+![Wallpaper Pro starter library with single-monitor and dual-panorama wallpapers](docs/images/library.png)
 
 ## Requirements
 
@@ -74,4 +76,4 @@ WALLPAPER_PRO_SMOKE_KIND=video WALLPAPER_PRO_SMOKE_MEDIA=file:///absolute/path/t
 
 A full installed-plugin session test is available with `python3 tests/integration_session.py`. It requires two monitors, temporarily switches wallpapers, generates its own fixtures, and restores the exact original settings in a `finally` block. It is a manual graphical-session test, separate from CI.
 
-See [release checklist](docs/RELEASE.md) for remaining integration testing and marketplace steps. No wallpaper assets are bundled. Import only media you have permission to use.
+See [release checklist](docs/RELEASE.md) for remaining integration testing and marketplace steps. The original starter artwork and videos in `assets/library/` are bundled under this repository’s MIT license. Rebuild them with `python3 scripts/build-starter-library.py` (ffmpeg required). The library appears automatically without changing your active wallpaper. Panoramic selections automatically choose spanning mode; you still click Apply to change the desktop. Import only media you have permission to use.
