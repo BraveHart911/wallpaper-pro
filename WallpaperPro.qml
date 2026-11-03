@@ -327,7 +327,7 @@ Item {
                         ColumnLayout {
                             anchors.fill: parent
                             anchors.margins: 16
-                            spacing: 4
+                            spacing: 6
                             Label { text: "LIBRARY"; color: theme.secondary; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.4; Layout.topMargin: 12; Layout.bottomMargin: 10; Layout.leftMargin: 12 }
                             Repeater {
                                 model: root.sections
@@ -335,16 +335,18 @@ Item {
                                     required property int index
                                     required property string modelData
                                     Layout.fillWidth: true
-                                    text: ["▦   ", "▶   ", "▣   ", "↔   ", "↓   ", "◈   "][index] + modelData
+                                    text: modelData
                                     navigation: true
+                                    iconName: ["library", "live", "monitor", "panorama", "imports", "themes"][index]
                                     checked: root.librarySection === index
                                     onClicked: root.librarySection = index
                                 }
                             }
                             ProButton {
                                 Layout.fillWidth: true
-                                text: "◉   Themes & appearance"
+                                text: "Themes & appearance"
                                 navigation: true
+                                iconName: "appearance"
                                 checked: root.librarySection === 7
                                 onClicked: { root.librarySection = 7; root.refreshThemeControls() }
                                 Accessible.name: "Open themes and appearance controls"
