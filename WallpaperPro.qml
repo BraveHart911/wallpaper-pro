@@ -143,6 +143,7 @@ Item {
     property var state: ({library: []})
     property string selected: ""
     property int librarySection: 0
+    property bool liveDualOnly: false
     property string searchQuery: ""
     readonly property string sortOrder: state.sortOrder || "original"
     readonly property var sortKeys: ["original", "name", "color"]
@@ -154,9 +155,10 @@ Item {
         return terms.every(term => haystack.indexOf(term) !== -1)
     }
     onLibrarySectionChanged: { selected = ""; stopPreview(previewId) }
+    onLiveDualOnlyChanged: stopPreview(previewId)
     readonly property var filteredLibrary: Library.ordered((state.library || []).filter(item => {
         const layout = item.layout || ((item.width || 0) / (item.height || 1) >= 2.7 ? "panoramic" : "single")
-        const matchesSection = librarySection === 0 || (librarySection === 1 && item.kind === "video") || (librarySection === 2 && layout === "single") || (librarySection === 3 && layout === "panoramic") || (librarySection === 4 && !item.bundled && !item.themeManaged) || (librarySection === 5 && (item.themes || []).length > 0)
+        const matchesSection = librarySection === 0 || (librarySection === 1 && item.kind === "video" && (!liveDualOnly || layout === "panoramic")) || (librarySection === 2 && layout === "single") || (librarySection === 3 && layout === "panoramic") || (librarySection === 4 && !item.bundled && !item.themeManaged) || (librarySection === 5 && (item.themes || []).length > 0)
         return matchesSection && matchesSearch(item)
     }), sortOrder, state.contextEnabled === true)
     readonly property var selectedMedia: (state.library || []).find(item => item.id === selected) || null
@@ -445,6 +447,18 @@ Item {
                                 ProField { Layout.fillWidth: true; placeholderText: "Search"; text: root.searchQuery
                             onTextEdited: root.searchQuery = text }
                             }
+                            RowLayout {
+                                visible: root.librarySection === 1
+                                Layout.fillWidth: true
+                                ProCheck {
+                                    text: "Show dual-monitor wallpapers only"
+                                    checked: root.liveDualOnly
+                                    onClicked: root.liveDualOnly = checked
+                                    Accessible.name: "Show only panoramic live wallpapers for dual monitors"
+                                }
+                                Item { Layout.fillWidth: true }
+                                Label { text: root.liveDualOnly ? "Panoramic videos" : "All live wallpapers"; color: theme.secondary; font.pixelSize: 11 }
+                            }
                             Rectangle {
                                 visible: root.operationError !== "" || !!root.state.contextError || root.themeSyncError !== "" || themeSync.running || worker.running || root.folderErrors !== "" || root.playbackErrors !== "" || root.compatibilityWarning !== "" || root.pendingCommand === "import-folder"
                                 Layout.fillWidth: true
@@ -574,7 +588,7 @@ Item {
                                             ToolTip.text: card.modelData.name + (card.modelData.contextGroup ? " · Suggested subject: " + card.modelData.contextGroup + (card.modelData.contextUncertain ? " (uncertain)" : "") : "") + (card.modelData.colorName ? " · " + card.modelData.colorName : "")
                                         }
                                     }
-                                    Label { anchors.centerIn: parent; visible: !root.filteredLibrary.length; text: "No wallpapers here yet.\nAdd a file, folder, or web link to get started."; color: theme.secondary; horizontalAlignment: Text.AlignHCenter; lineHeight: 1.6; font.pixelSize: 13 }
+                                    Label { anchors.centerIn: parent; visible: !root.filteredLibrary.length; text: root.librarySection === 1 && root.liveDualOnly ? "No dual-monitor live wallpapers found.\nTurn off the filter to see all live wallpapers." : "No wallpapers here yet.\nAdd a file, folder, or web link to get started."; color: theme.secondary; horizontalAlignment: Text.AlignHCenter; lineHeight: 1.6; font.pixelSize: 13 }
                                 }
                             }
                                 ColorRail {
