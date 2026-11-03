@@ -108,6 +108,39 @@ Item {
         }
     }
     Process {
+        id: monitorBrightnessProcess
+        command: ["python3", root.script, "monitor-brightness"].concat(root.monitorBrightnessArgs)
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const result = JSON.parse(text)
+                    root.monitorMessage = "Brightness set to " + Math.round(result.value * 100 / result.maximum) + "% on " + result.name + "."
+                    root.monitorError = ""
+                } catch (e) { }
+            }
+        }
+        stderr: StdioCollector { onStreamFinished: if (text.trim()) root.monitorError = text.trim() }
+        onExited: function(code, status) {
+            root.monitorBrightnessApplying = false
+            if (code !== 0 && !root.monitorError) root.monitorError = "Could not change hardware brightness."
+            if (root.monitorBrightnessTimer.restartAfterApply) {
+                root.monitorBrightnessTimer.restartAfterApply = false
+                root.monitorBrightnessTimer.restart()
+            }
+        }
+    }
+    Timer {
+        id: monitorBrightnessTimer
+        property bool restartAfterApply: false
+        interval: 450
+        repeat: false
+        onTriggered: {
+            if (root.monitorBrightnessDragging) return
+            if (root.monitorBrightnessApplying) restartAfterApply = true
+            else root.applyMonitorBrightness(root.monitorBrightnessTarget, root.monitorBrightnessValue)
+        }
+    }
+    Process {
         id: currentThemeProcess
         command: ["omarchy", "theme", "current"]
         stdout: StdioCollector { onStreamFinished: root.currentThemeName = text.trim() }
@@ -161,6 +194,11 @@ Item {
     property var monitorArrangementBounds: ({minX: 0, maxX: 0, minY: 0, maxY: 0})
     property var monitorArgs: []
     property bool monitorApplying: false
+    property var monitorBrightnessArgs: []
+    property string monitorBrightnessTarget: ""
+    property int monitorBrightnessValue: 0
+    property bool monitorBrightnessApplying: false
+    property bool monitorBrightnessDragging: false
     property string monitorError: ""
     property string monitorMessage: ""
     property string themeSearch: ""
@@ -305,14 +343,28 @@ Item {
         monitorArrangementBounds = {minX: minX, minY: minY, maxX: maxX, maxY: maxY}
         monitorMapBounds = {minX: minX - 180, minY: minY - 140, maxX: maxX + 180, maxY: maxY + 140}
     }
-    function applyMonitor(name, modeValue, x, y, scale, brightness) {
+    function applyMonitor(name, modeValue, x, y, scale) {
         if (monitorApplying) return
         monitorError = ""
         monitorMessage = ""
         monitorArgs = [name, "--mode", modeValue, "--x", String(x), "--y", String(y), "--scale", String(scale)]
-        if (brightness >= 0) monitorArgs = monitorArgs.concat(["--brightness", String(brightness)])
         monitorApplying = true
         monitorApplyProcess.running = true
+    }
+    function queueMonitorBrightness(name, value, dragging) {
+        monitorBrightnessTarget = name
+        monitorBrightnessValue = Math.max(0, Math.min(100, Math.round(value)))
+        monitorBrightnessDragging = dragging
+        monitorBrightnessTimer.restart()
+    }
+    function applyMonitorBrightness(name, value) {
+        if (!name) return
+        if (monitorBrightnessApplying) { monitorBrightnessTimer.restartAfterApply = true; return }
+        monitorError = ""
+        monitorMessage = "Applying brightness to " + name + "…"
+        monitorBrightnessArgs = [name, String(value)]
+        monitorBrightnessApplying = true
+        monitorBrightnessProcess.running = true
     }
     function applyTheme(name) {
         if (themeApplying || !name) return
@@ -1098,12 +1150,21 @@ Item {
                                                             ColumnLayout {
                                                                 Layout.fillWidth: true
                                                                 spacing: 5
-                                                                Label { text: "Hardware brightness"; color: theme.colors.foreground; font.pixelSize: 11; font.weight: Font.DemiBold }
+                                                                Label { text: "Hardware brightness · adjusts on release"; color: theme.colors.foreground; font.pixelSize: 11; font.weight: Font.DemiBold; wrapMode: Text.Wrap }
                                                                 RowLayout {
                                                                     visible: monitorCard.modelData.brightness.available
                                                                     Layout.fillWidth: true
-                                                                    Slider { id: monitorBrightness; Layout.fillWidth: true; from: 0; to: 100; value: monitorCard.modelData.brightness.value; stepSize: 1 }
-                                                                    Label { text: Math.round(monitorBrightness.value) + "%"; color: theme.secondary; font.pixelSize: 11; Layout.preferredWidth: 34 }
+                                                                    Slider {
+                                                                        id: monitorBrightness
+                                                                        Layout.fillWidth: true
+                                                                        from: 0; to: 100
+                                                                        value: monitorCard.modelData.brightness.value * 100 / Math.max(1, monitorCard.modelData.brightness.maximum || 100)
+                                                                        stepSize: 1
+                                                                        onMoved: root.queueMonitorBrightness(monitorCard.modelData.name, value, pressed)
+                                                                        onPressedChanged: if (!pressed) root.queueMonitorBrightness(monitorCard.modelData.name, value, false)
+                                                                        Accessible.name: "Hardware brightness for " + monitorCard.modelData.name
+                                                                    }
+                                                                    Label { text: root.monitorBrightnessApplying && root.monitorBrightnessTarget === monitorCard.modelData.name ? "…" : Math.round(monitorBrightness.value) + "%"; color: theme.secondary; font.pixelSize: 11; Layout.preferredWidth: 34 }
                                                                 }
                                                                 Label { visible: !monitorCard.modelData.brightness.available; text: "Not supported by this display"; color: theme.secondary; font.pixelSize: 11 }
                                                             }
@@ -1111,7 +1172,7 @@ Item {
                                                         RowLayout {
                                                             Layout.fillWidth: true
                                                             Label { text: monitorCard.modelData.vrr ? "Variable refresh supported" : "Modes: " + monitorCard.modelData.modes.length; color: theme.secondary; font.pixelSize: 10; Layout.fillWidth: true }
-                                                            ProButton { text: root.monitorApplying ? "Applying…" : "Apply to " + monitorCard.modelData.name; primary: true; enabled: !root.monitorApplying && monitorCard.modelData.modes.length > 0; onClicked: root.applyMonitor(monitorCard.modelData.name, monitorCard.draftMode, root.monitorPositionX(monitorCard.modelData.name), root.monitorPositionY(monitorCard.modelData.name), monitorScale.value / 100, monitorCard.modelData.brightness.available ? Math.round(monitorBrightness.value) : -1) }
+                                                            ProButton { text: root.monitorApplying ? "Applying…" : "Apply to " + monitorCard.modelData.name; primary: true; enabled: !root.monitorApplying && monitorCard.modelData.modes.length > 0; onClicked: root.applyMonitor(monitorCard.modelData.name, monitorCard.draftMode, root.monitorPositionX(monitorCard.modelData.name), root.monitorPositionY(monitorCard.modelData.name), monitorScale.value / 100) }
                                                         }
                                                     }
                                                 }

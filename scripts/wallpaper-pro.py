@@ -904,6 +904,40 @@ def monitor_set(args):
     print(json.dumps({'ok': True, 'backup': str(backup)}))
 
 
+def monitor_brightness(args):
+    if not shutil.which('hyprctl'):
+        raise ValueError('Hyprland is not available')
+    if not shutil.which('ddcutil'):
+        raise ValueError('Install ddcutil to control this monitor’s hardware brightness')
+    if not 0 <= args.value <= 100:
+        raise ValueError('Brightness must be between 0 and 100')
+    connected = subprocess.run(['hyprctl', 'monitors', '-j'], capture_output=True, text=True, timeout=8, check=True)
+    if not any(item.get('name') == args.name for item in json.loads(connected.stdout)):
+        raise ValueError('Monitor is not connected: ' + args.name)
+    detected = subprocess.run(['ddcutil', 'detect', '--brief'], capture_output=True, text=True, timeout=12, check=False).stdout
+    display = None
+    for match in re.finditer(r'Display\s+(\d+)\s+I2C bus:\s+[^\n]*i2c-\d+\s+DRM connector:\s+card\d+-(\S+)', detected, re.S):
+        if match.group(2) == args.name:
+            display = match.group(1)
+            break
+    if not display:
+        raise ValueError('Hardware brightness control is not available for ' + args.name)
+    current = subprocess.run(['ddcutil', 'getvcp', '10', '--display', display, '--brief'], capture_output=True, text=True, timeout=8, check=False)
+    values = re.search(r'VCP\s+10\s+\S+\s+(\d+)\s+(\d+)', current.stdout)
+    if not values:
+        raise ValueError('Could not read brightness from ' + args.name + ': ' + (current.stderr.strip() or current.stdout.strip())[-250:])
+    maximum = int(values.group(2))
+    value = round(maximum * args.value / 100)
+    result = subprocess.run(['ddcutil', 'setvcp', '10', str(value), '--display', display, '--verify'], capture_output=True, text=True, timeout=15, check=False)
+    if result.returncode:
+        raise ValueError('Could not set brightness on ' + args.name + ': ' + (result.stderr.strip() or result.stdout.strip())[-300:])
+    confirmed = subprocess.run(['ddcutil', 'getvcp', '10', '--display', display, '--brief'], capture_output=True, text=True, timeout=8, check=False)
+    actual = re.search(r'VCP\s+10\s+\S+\s+(\d+)\s+(\d+)', confirmed.stdout)
+    if not actual:
+        raise ValueError('Brightness was sent to ' + args.name + ', but the monitor did not report its new level')
+    print(json.dumps({'ok': True, 'name': args.name, 'value': int(actual.group(1)), 'maximum': int(actual.group(2))}))
+
+
 def monitor_catalog_data(monitors):
     output = []
     for monitor in monitors:
@@ -946,6 +980,9 @@ def main():
     monitor.add_argument('--y', required=True, type=int)
     monitor.add_argument('--scale', required=True, type=float)
     monitor.add_argument('--brightness', type=int)
+    brightness = commands.add_parser('monitor-brightness', help='Adjust display brightness without changing monitor layout')
+    brightness.add_argument('name')
+    brightness.add_argument('value', type=int)
     commands.add_parser('off')
     unassign = commands.add_parser('unassign')
     unassign.add_argument('monitor')
@@ -973,6 +1010,9 @@ def main():
         return
     if args.command == 'monitor-set':
         monitor_set(args)
+        return
+    if args.command == 'monitor-brightness':
+        monitor_brightness(args)
         return
     if args.command == 'doctor':
         print(json.dumps(desktop_diagnostics()))
