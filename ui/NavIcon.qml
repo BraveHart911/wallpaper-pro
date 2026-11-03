@@ -11,6 +11,8 @@ Canvas {
     onPaint: {
         const ctx = getContext("2d")
         ctx.clearRect(0, 0, width, height)
+        ctx.save()
+        ctx.scale(width / 24, height / 24)
         ctx.strokeStyle = color
         ctx.fillStyle = color
         ctx.lineWidth = 1.7
@@ -57,6 +59,7 @@ Canvas {
             if (filled) ctx.fill()
             else ctx.stroke()
         }
+        ctx.restore()
     }
 
     onNameChanged: requestPaint()
