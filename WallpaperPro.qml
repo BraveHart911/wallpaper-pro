@@ -255,6 +255,7 @@ Item {
         if (automaticThemeSync) startThemeSync()
         if (!desktopCheck.running) desktopCheck.running = true
         refreshThemeControls()
+        if (librarySection === 8) refreshMonitors()
         run(["status"])
     }
     function refreshThemeControls() {
