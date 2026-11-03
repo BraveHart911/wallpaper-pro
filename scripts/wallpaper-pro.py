@@ -3,6 +3,8 @@
 import argparse
 import colorsys
 import math
+import re
+import tomllib
 import fcntl
 import hashlib
 import json
@@ -729,6 +731,46 @@ def desktop_diagnostics():
     return result
 
 
+def theme_catalog():
+    """Read installed Omarchy theme accent colors for Wallpaper Pro's color picker."""
+    if not shutil.which('omarchy'):
+        raise ValueError('Omarchy is not available')
+    names = subprocess.run(['omarchy', 'theme', 'list'], capture_output=True, text=True, timeout=10, check=True).stdout.splitlines()
+    current = subprocess.run(['omarchy', 'theme', 'current'], capture_output=True, text=True, timeout=10, check=True).stdout.strip()
+    home = Path.home()
+    roots = [Path(os.environ.get('XDG_CONFIG_HOME', home / '.config')) / 'omarchy/themes',
+             Path(os.environ.get('OMARCHY_PATH', '/usr/share/omarchy')) / 'themes']
+    colors = []
+    for name in names:
+        theme = name.strip()
+        if not theme:
+            continue
+        slug = re.sub(r'[^a-z0-9]+', '-', theme.lower()).strip('-')
+        config = {}
+        for root in roots:
+            path = root / slug / 'colors.toml'
+            if path.is_file():
+                try:
+                    config = tomllib.loads(path.read_text())
+                except (OSError, tomllib.TOMLDecodeError):
+                    config = {}
+                break
+        accent = config.get('accent') or config.get('blue') or config.get('foreground') or '#777777'
+        match = re.fullmatch(r'#?([0-9a-fA-F]{6})', str(accent))
+        if match:
+            raw = match.group(1)
+            rgb = tuple(int(raw[i:i + 2], 16) / 255 for i in (0, 2, 4))
+            hue, saturation, value = colorsys.rgb_to_hsv(*rgb)
+            group = ('Red', 'Orange', 'Yellow', 'Lime', 'Green', 'Teal', 'Cyan', 'Azure', 'Blue', 'Indigo', 'Violet', 'Purple', 'Magenta', 'Rose', 'Red')[int((hue * 360 + 12) // 24) % 15] if saturation >= .13 else 'Neutral'
+        else:
+            accent, hue, saturation, value, group = '#777777', 0, 0, .47, 'Neutral'
+        colors.append({'name': theme, 'accent': accent if match else '#777777', 'group': group,
+                       'hue': hue * 360 if saturation >= .13 else 999,
+                       'saturation': saturation, 'value': value, 'current': theme == current})
+    colors.sort(key=lambda item: (item['hue'], item['value'], item['name'].casefold()))
+    print(json.dumps({'current': current, 'themes': colors}))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
@@ -743,6 +785,7 @@ def main():
     thumbnails = commands.add_parser('thumbnails')
     thumbnails.add_argument('--force', action='store_true', help='Rebuild existing cached previews')
     commands.add_parser('doctor')
+    commands.add_parser('theme-catalog', help='List installed themes with accent colors')
     commands.add_parser('off')
     unassign = commands.add_parser('unassign')
     unassign.add_argument('monitor')
@@ -762,6 +805,9 @@ def main():
     remove = commands.add_parser('remove')
     remove.add_argument('id')
     args = parser.parse_args()
+    if args.command == 'theme-catalog':
+        theme_catalog()
+        return
     if args.command == 'doctor':
         print(json.dumps(desktop_diagnostics()))
         return

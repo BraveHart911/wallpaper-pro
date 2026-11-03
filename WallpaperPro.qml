@@ -62,9 +62,15 @@ Item {
     }
     Process {
         id: themeListProcess
-        command: ["omarchy", "theme", "list"]
+        command: ["python3", root.script, "theme-catalog"]
         stdout: StdioCollector {
-            onStreamFinished: root.availableThemes = text.split("\n").map(name => name.trim()).filter(name => name.length > 0)
+            onStreamFinished: {
+                try {
+                    const catalog = JSON.parse(text)
+                    root.currentThemeName = catalog.current
+                    root.availableThemes = catalog.themes
+                } catch (e) { root.operationError = "Could not read Omarchy's theme colors." }
+            }
         }
     }
     Process {
@@ -132,7 +138,7 @@ Item {
     property string searchQuery: ""
     readonly property string sortOrder: state.sortOrder || "original"
     readonly property var sortKeys: ["original", "name", "color"]
-    readonly property var filteredThemes: availableThemes.filter(name => name.toLowerCase().indexOf(themeSearch.trim().toLowerCase()) !== -1)
+    readonly property var filteredThemes: availableThemes.filter(item => (item.name + " " + item.group).toLowerCase().indexOf(themeSearch.trim().toLowerCase()) !== -1)
     function matchesSearch(item) {
         const terms = searchQuery.trim().toLowerCase().split(/\s+/).filter(term => term !== "")
         if (!terms.length) return true
@@ -599,30 +605,36 @@ Item {
                                             cellHeight: 86
                                             delegate: Item {
                                                 id: themeCard
-                                                required property string modelData
+                                                required property var modelData
                                                 width: themeGrid.cellWidth - 12
                                                 height: themeGrid.cellHeight - 12
                                                 Rectangle {
                                                     anchors.fill: parent
                                                     radius: 12
-                                                    color: themeCard.modelData === root.currentThemeName ? Qt.tint(root.surface, Qt.rgba(0.04,0.52,1,0.16)) : root.surface
-                                                    border.width: themeCard.modelData === root.currentThemeName ? 2 : 1
-                                                    border.color: themeCard.modelData === root.currentThemeName ? "#0a84ff" : root.divider
+                                                    color: themeCard.modelData.current ? Qt.tint(root.surface, Qt.rgba(0.04,0.52,1,0.16)) : root.surface
+                                                    border.width: themeCard.modelData.current ? 2 : 1
+                                                    border.color: themeCard.modelData.current ? themeCard.modelData.accent : root.divider
                                                     RowLayout {
                                                         anchors.fill: parent
                                                         anchors.margins: 13
                                                         spacing: 9
                                                         Rectangle {
                                                             width: 34; height: 34; radius: 10
-                                                            color: themeCard.modelData === root.currentThemeName ? "#0a84ff" : theme.secondary
-                                                            Text { anchors.centerIn: parent; text: themeCard.modelData === root.currentThemeName ? "✓" : "◈"; color: "white"; font.pixelSize: 15 }
+                                                            color: themeCard.modelData.accent
+                                                            border.color: Qt.rgba(0,0,0,.22)
+                                                            Text { anchors.centerIn: parent; text: themeCard.modelData.current ? "✓" : ""; color: "white"; font.pixelSize: 15; font.weight: Font.Bold }
                                                         }
-                                                        Label { Layout.fillWidth: true; text: themeCard.modelData; color: theme.colors.foreground; font.pixelSize: 12; font.weight: Font.Medium; elide: Text.ElideRight }
+                                                        ColumnLayout {
+                                                            Layout.fillWidth: true
+                                                            spacing: 2
+                                                            Label { Layout.fillWidth: true; text: themeCard.modelData.name; color: theme.colors.foreground; font.pixelSize: 12; font.weight: Font.Medium; elide: Text.ElideRight }
+                                                            Label { text: themeCard.modelData.group; color: theme.secondary; font.pixelSize: 10 }
+                                                        }
                                                         ProButton {
-                                                            text: themeCard.modelData === root.currentThemeName ? "Current" : "Apply"
-                                                            quiet: themeCard.modelData === root.currentThemeName
-                                                            enabled: !root.themeApplying && themeCard.modelData !== root.currentThemeName
-                                                            onClicked: root.applyTheme(themeCard.modelData)
+                                                            text: themeCard.modelData.current ? "Current" : "Apply"
+                                                            quiet: themeCard.modelData.current
+                                                            enabled: !root.themeApplying && !themeCard.modelData.current
+                                                            onClicked: root.applyTheme(themeCard.modelData.name)
                                                         }
                                                     }
                                                 }
