@@ -2,7 +2,7 @@
 
 An Omarchy shell plugin for a personal image and live wallpaper collection.
 
-**Early development · 0.7.0-alpha.1.** This is a working foundation, not a marketplace release yet.
+**Early development · 0.8.0-alpha.1.** This is a working foundation, not a marketplace release yet.
 
 ## Current features
 
@@ -40,6 +40,8 @@ From this checkout:
 
 ```sh
 omarchy plugin validate .
+# Optional Qt GUI interaction tests (Qt Test / qmltestrunner required):
+QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software /usr/lib/qt6/bin/qmltestrunner -input tests/qml -o -,txt
 ```
 
 Install this development version with `omarchy plugin add https://github.com/BraveHart911/wallpaper-pro` and enable `bravehart911.wallpaper-pro` from Omarchy's plugin settings. For a local test, copy this checkout into `~/.config/omarchy/plugins/bravehart911.wallpaper-pro`, rescan with `omarchy-shell shell rescanPlugins`, then enable with `omarchy plugin enable bravehart911.wallpaper-pro`. Do not copy over an existing plugin checkout.
@@ -65,6 +67,8 @@ The manager warns about potentially competing full-screen wallpaper surfaces. It
 ## Sort by color
 
 Use the sort menu above the gallery to choose **Sort: color**, **Sort: name**, or the original library order. Color sorting follows dominant hue through the spectrum, then black/gray/white by brightness; previews without color metadata appear last. Each card includes a small color swatch, and its tooltip gives the color name.
+
+With **Sort: color** selected, the right-hand scrollbar becomes a spectrum sampled from the wallpapers in the current category and search. Click a color to jump to its section, drag to scrub through colors, or use the mouse wheel to scroll. The hover label identifies the color and position in the collection. Tab to the spectrum for arrow-key, Page Up/Down, Home, and End navigation. Browsing never applies or changes a wallpaper. Other sort modes use the regular scrollbar.
 
 Colors are sampled from the actual thumbnail, including representative video frames. New imports are analyzed immediately. Existing items and theme wallpapers are analyzed by the background discovery process. Results are cached and refreshed when a thumbnail changes. The selected sort order is saved and applies within every category and search without changing wallpaper assignments.
 
@@ -125,6 +129,8 @@ Choose **Use Omarchy wallpaper**, then run `omarchy plugin remove bravehart911.w
 ```sh
 python3 -m unittest discover -s tests -v
 omarchy plugin validate .
+# Optional Qt GUI interaction tests (Qt Test / qmltestrunner required):
+QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software /usr/lib/qt6/bin/qmltestrunner -input tests/qml -o -,txt
 ```
 
 A graphical playback smoke test (briefly shows test media, without saving settings):

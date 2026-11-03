@@ -65,5 +65,16 @@ const ids=items=>JSON.parse(JSON.stringify(items.map(i=>i.id)));
 assert.deepStrictEqual(ids(c.ordered(items,'color')),['red','green','blue','black','white','unknown']);
 assert.deepStrictEqual(ids(c.ordered(items,'name')),['black','blue','green','red','unknown','white']);
 assert.deepStrictEqual(ids(c.ordered(items,'original')),ids(items));
-assert.equal(items[0].id,'white');'''
+assert.equal(items[0].id,'white');
+assert.equal(c.spectrumIndex(0,0.5),-1);
+assert.equal(c.spectrumIndex(100,-1),0);
+assert.equal(c.spectrumIndex(100,2),99);
+assert.equal(c.spectrumIndex(101,0.5),50);
+const stops=c.spectrumStops(c.ordered(items,'color'),6);
+assert.equal(stops[0].color,'#ff0000');assert.equal(stops[0].position,0);
+assert.equal(stops[stops.length-1].position,1);
+const single=c.spectrumStops([items[0]],96);assert.equal(single.length,2);assert.equal(single[1].color,'#ffffff');
+const large=Array.from({length:1000},()=>items[0]);assert.equal(c.spectrumStops(large,96).length,96);
+assert.equal(c.spectrumStops([],96).length,2);
+'''
         subprocess.run(['node','-e',script,str(path)],check=True)

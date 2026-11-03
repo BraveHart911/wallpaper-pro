@@ -12,3 +12,20 @@ function ordered(items, order) {
         return a.colorHue - b.colorHue || a.colorValue - b.colorValue || names
     })
 }
+
+function spectrumIndex(count, fraction) {
+    if (count <= 0) return -1
+    return Math.round(Math.max(0, Math.min(1, fraction)) * (count - 1))
+}
+
+function spectrumStops(items, limit) {
+    if (!items.length) return [{position: 0, color: "#777777"}, {position: 1, color: "#777777"}]
+    const count = Math.max(2, Math.min(limit || 96, items.length))
+    const stops = []
+    for (let i = 0; i < count; i++) {
+        const fraction = i / (count - 1)
+        const index = spectrumIndex(items.length, fraction)
+        stops.push({position: fraction, color: items[index].dominantColor || "#777777"})
+    }
+    return stops
+}

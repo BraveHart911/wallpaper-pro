@@ -332,12 +332,17 @@ Item {
                                     font.pixelSize: 12
                                 }
                             }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                spacing: 8
                             ScrollView {
                                 id: collectionScroll
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 clip: true
                                 ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                                ScrollBar.vertical.policy: root.sortOrder === "color" ? ScrollBar.AlwaysOff : ScrollBar.AsNeeded
                                 GridView {
                                     id: gallery
                                     model: root.filteredLibrary
@@ -429,6 +434,25 @@ Item {
                                         }
                                     }
                                     Label { anchors.centerIn: parent; visible: !root.filteredLibrary.length; text: "No wallpapers here yet.\nAdd a file, folder, or web link to get started."; color: theme.secondary; horizontalAlignment: Text.AlignHCenter; lineHeight: 1.6; font.pixelSize: 13 }
+                                }
+                            }
+                                ColorRail {
+                                    visible: root.sortOrder === "color"
+                                    Layout.preferredWidth: 30
+                                    Layout.fillHeight: true
+                                    items: root.filteredLibrary
+                                    foreground: theme.colors.foreground
+                                    background: theme.colors.background
+                                    position: gallery.contentHeight > gallery.height ? Math.max(0, gallery.contentY) / (gallery.contentHeight - gallery.height) : 0
+                                    pageSize: Math.min(1, gallery.height / Math.max(1, gallery.contentHeight))
+                                    rowStep: gallery.cellHeight * 0.75
+                                    onJumpRequested: function(fraction) {
+                                        const index = Library.spectrumIndex(root.filteredLibrary.length, fraction)
+                                        if (index >= 0) gallery.positionViewAtIndex(index, GridView.Beginning)
+                                    }
+                                    onScrollRequested: function(pixels) {
+                                        gallery.contentY = Math.max(0, Math.min(Math.max(0, gallery.contentHeight - gallery.height), gallery.contentY + pixels))
+                                    }
                                 }
                             }
                         }
