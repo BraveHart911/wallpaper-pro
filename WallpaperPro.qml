@@ -135,6 +135,15 @@ Item {
     readonly property color surface: Qt.tint(theme.colors.background, Qt.rgba(0.5, 0.5, 0.5, 0.07))
     readonly property color divider: Qt.rgba(0.5, 0.5, 0.5, 0.15)
     readonly property var sections: ["All wallpapers", "Live wallpapers", "Single monitor", "Dual panorama", "My imports", "Favorites", "Theme wallpapers"]
+    readonly property var sidebarSections: [
+        {label: sections[5], index: 5, icon: "favorite"},
+        {label: sections[0], index: 0, icon: "library"},
+        {label: sections[1], index: 1, icon: "live"},
+        {label: sections[2], index: 2, icon: "monitor"},
+        {label: sections[3], index: 3, icon: "panorama"},
+        {label: sections[4], index: 4, icon: "imports"},
+        {label: sections[6], index: 6, icon: "themes"}
+    ]
     function displayName(media) {
         if (!media) return "Choose a wallpaper"
         const title = String(media.name || "").replace(/\.(jpg|jpeg|png|webp|bmp|avif|mp4|webm|mkv|mov|m4v|gif)$/i, "").replace(/[._ -]+\d{3,5}[x×]\d{3,5}$/i, "").replace(/[-_]+/g, " ")
@@ -370,16 +379,15 @@ Item {
                             spacing: 6
                             Label { text: "LIBRARY"; color: theme.secondary; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.4; Layout.topMargin: 12; Layout.bottomMargin: 10; Layout.leftMargin: 12 }
                             Repeater {
-                                model: root.sections
+                                model: root.sidebarSections
                                 delegate: ProButton {
-                                    required property int index
-                                    required property string modelData
+                                    required property var modelData
                                     Layout.fillWidth: true
-                                    text: modelData
+                                    text: modelData.label
                                     navigation: true
-                                    iconName: ["library", "live", "monitor", "panorama", "imports", "favorite", "themes"][index]
-                                    checked: root.librarySection === index
-                                    onClicked: root.librarySection = index
+                                    iconName: modelData.icon
+                                    checked: root.librarySection === modelData.index
+                                    onClicked: root.librarySection = modelData.index
                                 }
                             }
                             Rectangle { Layout.fillWidth: true; Layout.topMargin: 6; Layout.bottomMargin: 2; height: 1; color: root.divider }

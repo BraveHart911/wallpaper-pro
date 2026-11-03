@@ -2,7 +2,7 @@
 
 An Omarchy shell plugin for a personal image and live wallpaper collection.
 
-**Early development · 0.9.0-alpha.14.** This is a working foundation, not a marketplace release yet.
+**Early development · 0.9.0-alpha.15.** This is a working foundation, not a marketplace release yet.
 
 ## Current features
 
