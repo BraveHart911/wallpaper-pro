@@ -2,13 +2,13 @@
 
 An Omarchy shell plugin for a personal image and live wallpaper collection.
 
-**Early development · 0.3.2-alpha.1.** This is a working foundation, not a marketplace release yet.
+**Early development · 0.3.3-alpha.1.** This is a working foundation, not a marketplace release yet.
 
 ## Current features
 
 - Browse 15 included wallpapers: six 1920 × 1080 images, six 3840 × 1080 panoramas, and three silent looping videos.
 - Filter by Videos, Single monitor, Dual panorama, or My imports, and search by name.
-- Import local images and videos through a file picker.
+- Import local images and videos through a file picker, with automatically generated thumbnail images.
 - Download direct HTTP/HTTPS media links into a private local collection.
 - Assign a different image or looping, muted video to each monitor.
 - Repeat one image or video on all connected monitors.
@@ -53,6 +53,12 @@ The manager uses Omarchy’s current palette; theme changes update its colors wi
 Video pauses on the monitor occupied by a fullscreen application. Other monitors continue playing, and playback resumes when fullscreen ends. `fullscreen off` disables this behavior. Connector assignments survive unplug/replug; panoramic geometry uses logical output coordinates and handles empty layouts safely. Mixed scale, portrait, and negative positions are covered by geometry tests; physical hotplug and display sleep testing remain on the release checklist.
 
 The manager warns about potentially competing full-screen wallpaper surfaces. It reports these without stopping them; use one active live wallpaper renderer per screen. Run `python3 scripts/wallpaper-pro.py doctor` for the same read-only check. Diagnostics inspect Hyprland layers only when the manager opens or the command runs.
+
+## Thumbnail previews
+
+Every new image or video import gets a cached JPEG preview. Videos use a representative frame from a short sample, with a fallback for clips shorter than one second. Opening the library also generates missing previews for older imports and replaces deleted cache files. Your wallpapers and assignments stay intact.
+
+Previews live in `$XDG_DATA_HOME/wallpaper-pro/thumbnails` (default `~/.local/share/wallpaper-pro/thumbnails`). Run `python3 scripts/wallpaper-pro.py thumbnails --force` to rebuild imported previews. An existing unreadable or missing media file stays in the library with a preview error instead of preventing other entries from loading.
 
 ## Command line
 

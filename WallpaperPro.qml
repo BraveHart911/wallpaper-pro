@@ -221,8 +221,8 @@ Item {
                                 color: theme.colors.selection
                                 border.width: root.selected === card.modelData.id ? 2 : 1
                                 border.color: root.selected === card.modelData.id ? theme.colors.accent : theme.colors.selection
-                                Image { anchors { top: parent.top; left: parent.left; right: parent.right; margins: 8 } height: 100; source: card.modelData.thumbnailUrl || (card.modelData.kind === "image" ? card.modelData.url : ""); fillMode: Image.PreserveAspectFit; asynchronous: true }
-                                Label { anchors.centerIn: parent; visible: card.modelData.kind === "video" && !card.modelData.thumbnailUrl; text: "▶  LIVE VIDEO"; color: theme.colors.accent }
+                                Image { id: preview; anchors { top: parent.top; left: parent.left; right: parent.right; margins: 8 } height: 100; source: card.modelData.thumbnailUrl || (card.modelData.kind === "image" ? card.modelData.url : ""); fillMode: Image.PreserveAspectFit; asynchronous: true }
+                                Label { anchors.centerIn: parent; visible: preview.source.toString() === "" || preview.status === Image.Error; text: "Preview unavailable"; color: theme.colors.accent }
                                 Label { anchors { bottom: parent.bottom; left: parent.left; right: parent.right; margins: 12; bottomMargin: 30 } text: card.modelData.name; elide: Text.ElideRight; color: theme.colors.foreground }
                                 Label {
                                     anchors { bottom: parent.bottom; left: parent.left; right: parent.right; margins: 12 }

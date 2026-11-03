@@ -1,13 +1,12 @@
-import base64
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import tempfile
 from pathlib import Path
 import threading
 import unittest
 from unittest.mock import patch
-from test_library import app
+from test_library import app, PNG
 
-PNG = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=')
+
 
 
 class Handler(BaseHTTPRequestHandler):

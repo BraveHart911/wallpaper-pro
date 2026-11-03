@@ -1,7 +1,8 @@
-import base64
 import importlib.util
 import tempfile
 import unittest
+import struct
+import zlib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -10,15 +11,24 @@ app = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(app)
 
 
+def png_chunk(kind, value):
+    return struct.pack('>I', len(value)) + kind + value + struct.pack('>I', zlib.crc32(kind + value))
+
+
+PNG = (b'\x89PNG\r\n\x1a\n' + png_chunk(b'IHDR', struct.pack('>IIBBBBB', 16, 16, 8, 2, 0, 0, 0))
+       + png_chunk(b'IDAT', zlib.compress((b'\x00' + b'\x40\x90\xc0' * 16) * 16)) + png_chunk(b'IEND', b''))
+
+
 class LibraryTests(unittest.TestCase):
     def test_import_and_independent_assignments(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             source = base / "a ' quoted image.png"
-            source.write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII='))
+            source.write_bytes(PNG)
             media = app.import_media(str(source), base / 'data')
             source.unlink()
             self.assertTrue(Path(media['path']).exists())
+            self.assertTrue(media['thumbnailUrl'].endswith('.jpg'))
             self.assertTrue(media['url'].startswith('file:///'))
             state = app.default()
             state['library'] = [media]

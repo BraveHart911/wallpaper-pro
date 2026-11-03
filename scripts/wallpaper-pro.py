@@ -76,6 +76,60 @@ def validate_media(path):
         raise ValueError('Media inspection timed out') from error
 
 
+def generate_thumbnail(source, kind, data, identity, force=False):
+    """Cache a real image/frame preview, publishing it only after a successful decode."""
+    if not shutil.which('ffmpeg'):
+        raise ValueError('Install ffmpeg to generate wallpaper previews')
+    directory = data / 'thumbnails'
+    directory.mkdir(parents=True, exist_ok=True)
+    target = directory / (hashlib.sha256(identity.encode()).hexdigest() + '.jpg')
+    if not force and target.is_file() and target.stat().st_size:
+        return target.resolve().as_uri()
+    fd, name = tempfile.mkstemp(dir=directory, prefix='.preview-', suffix='.jpg')
+    os.close(fd)
+    temporary = Path(name)
+    try:
+        # Skip video intros and choose a representative frame from a short sample.
+        # Short clips and still images fall back to decoding from the beginning.
+        offsets = [1, 0] if kind == 'video' else [0]
+        for offset in offsets:
+            temporary.unlink(missing_ok=True)
+            command = ['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y',
+                       '-threads', '1', '-filter_threads', '1', '-protocol_whitelist', 'file,pipe']
+            if offset:
+                command += ['-ss', str(offset)]
+            command += ['-i', str(source), '-map', '0:v:0', '-an', '-sn', '-dn',
+                        '-vf', ('thumbnail=60,' if kind == 'video' else '') +
+                        'scale=480:270:force_original_aspect_ratio=decrease:force_divisible_by=2',
+                        '-frames:v', '1', '-q:v', '3', '-update', '1', str(temporary)]
+            try:
+                result = subprocess.run(command, capture_output=True, timeout=25, check=False)
+            except subprocess.TimeoutExpired:
+                continue
+            if result.returncode == 0 and temporary.is_file() and temporary.stat().st_size:
+                os.replace(temporary, target)
+                return target.resolve().as_uri()
+        raise ValueError('Could not decode a thumbnail image from this media file')
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def ensure_thumbnails(state, data, force=False):
+    for media in state['library']:
+        if media.get('bundled'):
+            continue
+        current = urllib.parse.urlparse(media.get('thumbnailUrl', ''))
+        if not force and current.scheme == 'file' and Path(urllib.request.url2pathname(current.path)).is_file():
+            continue
+        try:
+            media['thumbnailUrl'] = generate_thumbnail(Path(media['path']), media['kind'], data, media['id'], force)
+            media.pop('thumbnailError', None)
+        except (ValueError, OSError) as error:
+            media.pop('thumbnailUrl', None)
+            media['thumbnailError'] = str(error)
+    return state
+
+
 def import_media(source, data):
     """Copy media into managed storage; remote sources must be direct media URLs."""
     library = data / 'library'
@@ -118,9 +172,11 @@ def import_media(source, data):
         dimensions = validate_media(temporary)
         identity = digest.hexdigest()
         destination = library / (identity + suffix)
+        kind = 'image' if suffix in IMAGE else 'video'
+        thumbnail_url = generate_thumbnail(temporary, kind, data, identity)
         os.replace(temporary, destination)
         return {'id': identity, 'name': name, 'path': str(destination.resolve()),
-                'url': destination.resolve().as_uri(), 'kind': 'image' if suffix in IMAGE else 'video',
+                'url': destination.resolve().as_uri(), 'kind': kind, 'thumbnailUrl': thumbnail_url,
                 'source': source if remote else str(source_path.resolve()),
                 'layout': 'panoramic' if dimensions['width'] / dimensions['height'] >= 2.7 else 'single',
                 **dimensions}
@@ -152,6 +208,10 @@ def update(state, args, data):
         media = import_media(args.source, data)
         if not any(item['id'] == media['id'] for item in state['library']):
             state['library'].append(media)
+        else:
+            existing = next(item for item in state['library'] if item['id'] == media['id'])
+            existing['thumbnailUrl'] = media['thumbnailUrl']
+            existing.pop('thumbnailError', None)
     elif args.command == 'apply':
         media = next((item for item in state['library'] if item['id'] == args.id), None)
         if media is None:
@@ -224,6 +284,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
     commands.add_parser('status')
+    thumbnails = commands.add_parser('thumbnails')
+    thumbnails.add_argument('--force', action='store_true', help='Rebuild existing cached previews')
     commands.add_parser('doctor')
     commands.add_parser('off')
     unassign = commands.add_parser('unassign')
@@ -250,7 +312,9 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX)
         path = config / 'settings.json'
         state = with_starter_library(load(path))
-        if args.command != 'status':
+        if args.command in ('status', 'thumbnails'):
+            state = ensure_thumbnails(state, data, getattr(args, 'force', False))
+        if args.command not in ('status', 'thumbnails'):
             state = update(state, args, data)
         save(path, state)
         print(json.dumps(state))
