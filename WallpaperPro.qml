@@ -111,7 +111,7 @@ Item {
             palette.buttonText: theme.colors.foreground
             palette.highlight: theme.colors.accent
             palette.highlightedText: theme.colors.background
-            palette.placeholderText: theme.colors.muted
+            palette.placeholderText: theme.secondary
             ColumnLayout {
                 anchors.fill: parent
                 anchors.margins: 28
@@ -122,7 +122,7 @@ Item {
                     Layout.fillWidth: true
                     ColumnLayout {
                         Label { text: "WALLPAPER PRO"; color: theme.colors.foreground; font.pixelSize: 28; font.bold: true }
-                        Label { text: "Your collection. Every screen."; color: theme.colors.muted }
+                        Label { text: "Your collection. Every screen."; color: theme.secondary }
                     }
                     Item { Layout.fillWidth: true }
                     Button { text: "Use Omarchy wallpaper"; enabled: !worker.running; onClicked: root.run(["off"]) }
@@ -161,7 +161,7 @@ Item {
                                 anchors.fill: parent
                                 anchors.margins: 10
                                 Label { text: parent.parent.modelData.name; color: theme.colors.accent; font.bold: true }
-                                Label { text: root.assignment(parent.parent.modelData.name); color: theme.colors.muted; elide: Text.ElideRight; Layout.fillWidth: true }
+                                Label { text: root.assignment(parent.parent.modelData.name); color: theme.secondary; elide: Text.ElideRight; Layout.fillWidth: true }
                             }
                         }
                     }
@@ -184,12 +184,12 @@ Item {
                 }
                 Label {
                     text: root.filteredLibrary.length + " wallpapers · Select a card, then apply to your screen or both monitors."
-                    color: theme.colors.muted
+                    color: theme.secondary
                 }
                 Label {
                     visible: !root.filteredLibrary.length
                     text: "No matching wallpapers. Add a local file or direct web link, or try another category."
-                    color: theme.colors.muted
+                    color: theme.secondary
                     Layout.fillWidth: true
                     wrapMode: Text.Wrap
                 }
@@ -254,7 +254,7 @@ Item {
                     Button { text: "Clear monitor"; enabled: mode.currentIndex === 0 && !worker.running; onClicked: root.run(["unassign", monitor.currentText]) }
                     Button { text: "Remove selected"; enabled: root.selectedMedia !== null && !root.selectedMedia.bundled && !worker.running; onClicked: root.run(["remove", root.selected]) }
                 }
-                Label { text: "Videos loop silently. Panoramic mode spans images or video. Video timing is drift-corrected, not frame locked. Turn off restores the wallpaper underneath."; Layout.fillWidth: true; wrapMode: Text.Wrap; color: theme.colors.muted }
+                Label { text: "Videos loop silently. Panoramic mode spans images or video. Video timing is drift-corrected, not frame locked. Use Omarchy wallpaper restores the wallpaper underneath."; Layout.fillWidth: true; wrapMode: Text.Wrap; color: theme.secondary }
             }
         }
     }
