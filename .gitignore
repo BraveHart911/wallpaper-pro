@@ -1,2 +1,6 @@
 __pycache__/
 *.pyc
+node_modules/
+context-runtime/
+context-models/
+context-index.json

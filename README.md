@@ -2,7 +2,7 @@
 
 An Omarchy shell plugin for a personal image and live wallpaper collection.
 
-**Early development · 0.8.0-alpha.1.** This is a working foundation, not a marketplace release yet.
+**Early development · 0.9.0-alpha.1.** This is a working foundation, not a marketplace release yet.
 
 ## Current features
 
@@ -71,6 +71,28 @@ Use the sort menu above the gallery to choose **Sort: color**, **Sort: name**, o
 With **Sort: color** selected, the right-hand scrollbar becomes a spectrum sampled from the wallpapers in the current category and search. Click a color to jump to its section, drag to scrub through colors, or use the mouse wheel to scroll. The hover label identifies the color and position in the collection. Tab to the spectrum for arrow-key, Page Up/Down, Home, and End navigation. Browsing never applies or changes a wallpaper. Other sort modes use the regular scrollbar.
 
 Colors are sampled from the actual thumbnail, including representative video frames. New imports are analyzed immediately. Existing items and theme wallpapers are analyzed by the background discovery process. Results are cached and refreshed when a thumbnail changes. The selected sort order is saved and applies within every category and search without changing wallpaper assignments.
+
+## Smart color + context grouping
+
+In Settings, **Enable smart grouping** installs an isolated local runtime and the CLIP visual model. Node.js (18+) and npm are required for setup. Tools and model occupy approximately 530 MB on disk. Images are processed locally; normal analysis explicitly disables remote model access. Model weights and dependencies are downloaded once, separately from the plugin checkout.
+
+With grouping enabled, the color sort becomes **Color + context**:
+
+1. Color families remain primary: 30-degree hue bands, followed by dark, gray, and light neutrals.
+2. Within each family, visual subject groups keep forests, mountains, oceans, cities, space, technology, animals, abstract art, and other subjects together.
+3. Within each subject, visual embeddings arrange similar compositions next to each other. Fine hue and brightness break ties.
+
+Labels come from image pixels, never filename keywords. Whole-image and center views are combined, with extra edge views for wide panoramas and tall images. Videos are classified from their representative thumbnail. Suggested subjects appear on cards and in search; uncertain matches are marked in the tooltip. Automatic classification can still mistake ambiguous artwork.
+
+Embeddings and labels are cached. Only new or changed thumbnails need image-model inference; changing subject prompts or group membership can reuse embeddings. Importing files/folders triggers background analysis when enabled. Disable **Group by color, then image context** to return to strict hue sorting. Wallpaper assignments are not changed by either mode.
+
+```sh
+python3 scripts/wallpaper-pro.py install-context
+python3 scripts/wallpaper-pro.py sync-themes
+python3 scripts/wallpaper-pro.py context off  # optional: strict color sorting
+```
+
+See [model and runtime notes](context/NOTICE.md). The Omarchy plugin installer itself does not run setup hooks or download the image model.
 
 ## Automatic theme library
 

@@ -1,15 +1,35 @@
-function ordered(items, order) {
+function colorBand(item) {
+    if (!item.dominantColor) return 15
+    if (item.colorNeutral) return 12 + (item.colorValue < 0.22 ? 0 : item.colorValue > 0.78 ? 2 : 1)
+    return Math.floor(((item.colorHue + 15) % 360) / 30)
+}
+
+function compareNames(a, b) {
+    return String(a.name || "").toLowerCase().localeCompare(String(b.name || "").toLowerCase()) || String(a.id).localeCompare(String(b.id))
+}
+
+function ordered(items, order, smart) {
     if (order === "original") return items
+    const contextual = smart === true && items.some(item => !!item.contextGroup)
     return items.slice().sort(function(a, b) {
-        const names = String(a.name || "").toLowerCase().localeCompare(String(b.name || "").toLowerCase()) || String(a.id).localeCompare(String(b.id))
-        if (order === "name") return names
+        if (order === "name") return compareNames(a, b)
         const knownA = !!a.dominantColor, knownB = !!b.dominantColor
         if (knownA !== knownB) return knownA ? -1 : 1
-        if (!knownA) return names
+        if (!knownA) return compareNames(a, b)
+        if (contextual) {
+            const band = colorBand(a) - colorBand(b)
+            if (band) return band
+            const group = (a.contextGroup || "~Unclassified").localeCompare(b.contextGroup || "~Unclassified")
+            if (group) return group
+            if (a.contextGroup && b.contextGroup) {
+                const rank = (a.contextRank || 0) - (b.contextRank || 0)
+                if (rank) return rank
+            }
+        }
         const neutral = Number(!!a.colorNeutral) - Number(!!b.colorNeutral)
         if (neutral) return neutral
-        if (a.colorNeutral) return a.colorValue - b.colorValue || names
-        return a.colorHue - b.colorHue || a.colorValue - b.colorValue || names
+        if (a.colorNeutral) return a.colorValue - b.colorValue || compareNames(a, b)
+        return a.colorHue - b.colorHue || a.colorValue - b.colorValue || compareNames(a, b)
     })
 }
 

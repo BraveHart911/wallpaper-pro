@@ -39,6 +39,7 @@ Item {
             onRead: function(line) {
                 try {
                     const result = JSON.parse(line)
+                    if (result.event === "context-progress") root.themeSyncMessage = result.message || "Learning image context · " + result.done + " of " + result.total
                     if (result.event === "color-progress") root.themeSyncMessage = "Analyzing wallpaper colors · " + result.done + " of " + result.total
                     if (result.event === "theme-progress") root.themeSyncMessage = "Discovering theme wallpapers · " + result.done + " of " + result.total
                 } catch (e) { }
@@ -75,19 +76,25 @@ Item {
         const title = String(media.name || "").replace(/\.(jpg|jpeg|png|webp|bmp|avif|mp4|webm|mkv|mov|m4v|gif)$/i, "").replace(/[._ -]+\d{3,5}[x×]\d{3,5}$/i, "").replace(/[-_]+/g, " ")
         return title.charAt(0).toUpperCase() + title.slice(1)
     }
-    function mediaSubtitle(media) { return media ? (media.themes && media.themes.length ? media.themes[0] + " · " : "") + (media.layout === "panoramic" ? "Dual panorama" : "Single monitor") + (media.width ? " · " + media.width + " × " + media.height : "") : "Select a preview from your collection" }
+    function mediaSubtitle(media) { return media ? (media.contextGroup ? media.contextGroup + " · " : "") + (media.themes && media.themes.length ? media.themes[0] + " · " : "") + (media.layout === "panoramic" ? "Dual panorama" : "Single monitor") + (media.width ? " · " + media.width + " × " + media.height : "") : "Select a preview from your collection" }
     property var state: ({library: []})
     property string selected: ""
     property int librarySection: 0
     property string searchQuery: ""
     readonly property string sortOrder: state.sortOrder || "original"
     readonly property var sortKeys: ["original", "name", "color"]
+    function matchesSearch(item) {
+        const terms = searchQuery.trim().toLowerCase().split(/\s+/).filter(term => term !== "")
+        if (!terms.length) return true
+        const haystack = [item.name || "", (item.themes || []).join(" "), item.contextGroup || "", item.colorName || ""].join(" ").toLowerCase()
+        return terms.every(term => haystack.indexOf(term) !== -1)
+    }
     onLibrarySectionChanged: selected = ""
     readonly property var filteredLibrary: Library.ordered((state.library || []).filter(item => {
         const layout = item.layout || ((item.width || 0) / (item.height || 1) >= 2.7 ? "panoramic" : "single")
         const matchesSection = librarySection === 0 || (librarySection === 1 && item.kind === "video") || (librarySection === 2 && layout === "single") || (librarySection === 3 && layout === "panoramic") || (librarySection === 4 && !item.bundled && !item.themeManaged) || (librarySection === 5 && (item.themes || []).length > 0)
-        return matchesSection && (String(item.name || "") + " " + (item.themes || []).join(" ")).toLowerCase().indexOf(searchQuery.toLowerCase()) !== -1
-    }), sortOrder)
+        return matchesSection && matchesSearch(item)
+    }), sortOrder, state.contextEnabled === true)
     readonly property var selectedMedia: (state.library || []).find(item => item.id === selected) || null
     function selectMedia(item) {
         selected = item.id
@@ -145,6 +152,11 @@ Item {
             onRead: function(line) {
                 try {
                     const result = JSON.parse(line)
+                    if (result.event === "setup-progress" || result.event === "context-progress") {
+                        root.message = result.message || "Preparing local visual analysis…"
+                        return
+                    }
+                    if (result.event === "context-ready") return
                     if (result.event === "progress") {
                         root.message = "Importing " + (result.done + 1) + " of " + result.total + " · " + result.file
                         return
@@ -161,7 +173,10 @@ Item {
             }
         }
         stderr: StdioCollector { onStreamFinished: { if (text.trim()) root.operationError = text.trim() } }
-        onExited: function(code, status) { if (code !== 0 && !root.operationError) root.operationError = "Operation failed (" + code + ")" }
+        onExited: function(code, status) {
+            if (code !== 0 && !root.operationError) root.operationError = "Operation failed (" + code + ")"
+            if (code === 0 && root.state.contextEnabled && ["import", "import-folder", "thumbnails", "install-context", "context"].indexOf(root.pendingCommand) !== -1) root.startThemeSync()
+        }
     }
     FileDialog {
         id: picker
@@ -300,7 +315,7 @@ Item {
                                 Item { Layout.fillWidth: true }
                                 ProCombo {
                                     Layout.preferredWidth: 150
-                                    model: ["Sort: original", "Sort: name", "Sort: color"]
+                                    model: ["Sort: original", "Sort: name", root.state.contextEnabled ? "Color + context" : "Sort: color"]
                                     currentIndex: Math.max(0, root.sortKeys.indexOf(root.sortOrder))
                                     enabled: !worker.running
                                     onActivated: root.run(["sort", root.sortKeys[currentIndex]])
@@ -315,7 +330,7 @@ Item {
                             onTextEdited: root.searchQuery = text }
                             }
                             Rectangle {
-                                visible: root.operationError !== "" || root.themeSyncError !== "" || themeSync.running || worker.running || root.folderErrors !== "" || root.playbackErrors !== "" || root.compatibilityWarning !== "" || root.pendingCommand === "import-folder"
+                                visible: root.operationError !== "" || !!root.state.contextError || root.themeSyncError !== "" || themeSync.running || worker.running || root.folderErrors !== "" || root.playbackErrors !== "" || root.compatibilityWarning !== "" || root.pendingCommand === "import-folder"
                                 Layout.fillWidth: true
                                 implicitHeight: notice.implicitHeight + 24
                                 radius: 10
@@ -324,7 +339,7 @@ Item {
                                     id: notice
                                     anchors.fill: parent
                                     anchors.margins: 12
-                                    text: root.operationError || root.folderErrors || root.playbackErrors || root.compatibilityWarning || root.themeSyncError || (themeSync.running && !worker.running ? root.themeSyncMessage : root.message)
+                                    text: root.operationError || root.state.contextError || root.folderErrors || root.playbackErrors || root.compatibilityWarning || root.themeSyncError || (themeSync.running && !worker.running ? root.themeSyncMessage : root.message)
                                     color: root.operationError || root.folderErrors || root.playbackErrors ? theme.colors.red : theme.secondary
                                     wrapMode: Text.Wrap
                                     maximumLineCount: 3
@@ -430,7 +445,7 @@ Item {
                                             }
                                             ToolTip.visible: cardMouse.containsMouse
                                             ToolTip.delay: 700
-                                            ToolTip.text: card.modelData.name + (card.modelData.colorName ? " · " + card.modelData.colorName : "")
+                                            ToolTip.text: card.modelData.name + (card.modelData.contextGroup ? " · Suggested subject: " + card.modelData.contextGroup + (card.modelData.contextUncertain ? " (uncertain)" : "") : "") + (card.modelData.colorName ? " · " + card.modelData.colorName : "")
                                         }
                                     }
                                     Label { anchors.centerIn: parent; visible: !root.filteredLibrary.length; text: "No wallpapers here yet.\nAdd a file, folder, or web link to get started."; color: theme.secondary; horizontalAlignment: Text.AlignHCenter; lineHeight: 1.6; font.pixelSize: 13 }
@@ -530,10 +545,49 @@ Item {
                 padding: 20
                 closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
                 background: Rectangle { color: theme.colors.background; radius: 14; border.color: root.divider }
+                height: Math.min(settingsColumn.implicitHeight + 40, Math.max(120, frame.height - 80))
+                contentItem: ScrollView {
+                    id: settingsScroll
+                    clip: true
+                    contentWidth: availableWidth
+                    contentHeight: settingsColumn.implicitHeight
+                    ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
                 ColumnLayout {
-                    width: parent.width
+                    id: settingsColumn
+                    width: settingsScroll.availableWidth
                     spacing: 8
                     Label { text: "Playback & library"; color: theme.colors.foreground; font.pixelSize: 16; font.weight: Font.DemiBold; Layout.bottomMargin: 8 }
+                    ProButton {
+                        visible: !root.state.contextAvailable
+                        text: "Enable smart grouping"
+                        primary: true
+                        enabled: !worker.running
+                        Layout.fillWidth: true
+                        onClicked: root.run(["install-context"])
+                    }
+                    Label {
+                        visible: !root.state.contextAvailable
+                        text: "Downloads a local image model and tools (about 530 MB on disk). Images stay on this device."
+                        color: theme.secondary
+                        font.pixelSize: 11
+                        wrapMode: Text.Wrap
+                        Layout.fillWidth: true
+                    }
+                    ProCheck {
+                        visible: !!root.state.contextAvailable
+                        text: "Group by color, then image context"
+                        checked: !!root.state.contextEnabled
+                        enabled: !worker.running
+                        onClicked: root.run(["context", checked ? "on" : "off"])
+                    }
+                    Label {
+                        visible: !!root.state.contextEnabled
+                        text: (root.state.contextReport ? root.state.contextReport.analyzed + " wallpapers analyzed. " : "") + "Subject labels are automatic suggestions."
+                        color: theme.secondary
+                        font.pixelSize: 11
+                        wrapMode: Text.Wrap
+                        Layout.fillWidth: true
+                    }
                     ProCheck { text: "Pause video on battery"; checked: root.state.pauseOnBattery !== false; enabled: !worker.running; onClicked: root.run(["battery", checked ? "on" : "off"]) }
                     ProCheck { text: "Pause behind fullscreen apps"; checked: root.state.pauseOnFullscreen !== false; enabled: !worker.running; onClicked: root.run(["fullscreen", checked ? "on" : "off"]) }
                     Label { text: "Videos loop silently. Panoramic video uses drift correction and is not frame locked."; color: theme.secondary; font.pixelSize: 11; wrapMode: Text.Wrap; Layout.fillWidth: true; Layout.bottomMargin: 10 }
@@ -542,6 +596,7 @@ Item {
                     ProButton { text: "Use Omarchy wallpaper"; quiet: true; Layout.fillWidth: true; enabled: !worker.running; onClicked: root.run(["off"]) }
                     ProButton { text: "Clear this monitor"; quiet: true; Layout.fillWidth: true; enabled: mode.currentIndex === 0 && !worker.running; onClicked: root.run(["unassign", monitor.currentText]) }
                     ProButton { text: "Remove selected wallpaper"; quiet: true; Layout.fillWidth: true; enabled: root.selectedMedia !== null && !root.selectedMedia.bundled && !root.selectedMedia.themeManaged && !worker.running; onClicked: root.run(["remove", root.selected]) }
+                }
                 }
             }
         }

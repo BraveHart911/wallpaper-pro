@@ -31,6 +31,14 @@ The marketplace's maintainers approve listings. A valid manifest alone does not 
 - [x] Verify startup discovery and a newly installed theme appearing in the Themes category through the actual QML/background-process pipeline.
 - [x] Development-machine scan: 1,023 files, 1,020 unique theme wallpapers, no failures. Cached follow-up scan: approximately 0.15 seconds.
 
+## Visual context verification
+
+- [x] Run actual local CLIP inference on the library; 1,081 wallpaper records received image-derived subject labels.
+- [x] Verify whole-image/detail views and panorama edge crops; review forest and workstation examples against their previews.
+- [x] Test color-family priority, subject grouping, visually similar neighbors, precise thumbnail fingerprints, and cached runs without model reloads.
+- [x] Keep model/runtime downloads outside the plugin checkout, use pinned npm dependencies, and disable remote model access during normal analysis.
+- [x] Preserve imports and active assignments; context analysis runs outside the settings lock and failures do not block theme discovery.
+
 ## Next milestones
 
 - Frame-locked panoramic video. A shared timeline with periodic drift correction is implemented; it is not frame locked.

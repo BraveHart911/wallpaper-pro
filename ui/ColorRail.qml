@@ -83,7 +83,7 @@ FocusScope {
         color: root.background
         border.color: Qt.rgba(0.5,0.5,0.5,0.3)
         Rectangle { x: 10; anchors.verticalCenter: parent.verticalCenter; width: 9; height: 9; radius: 5; color: root.pointerItem ? root.pointerItem.dominantColor || "#777777" : "#777777" }
-        Text { id: tip; x: 26; anchors.verticalCenter: parent.verticalCenter; text: root.pointerItem ? (root.pointerItem.colorName || "Unclassified") + " · " + (root.pointerIndex + 1) + "/" + root.items.length : ""; color: root.foreground; font.pixelSize: 11 }
+        Text { id: tip; x: 26; anchors.verticalCenter: parent.verticalCenter; text: root.pointerItem ? (root.pointerItem.colorName || "Unclassified") + (root.pointerItem.contextGroup ? " · " + root.pointerItem.contextGroup : "") + " · " + (root.pointerIndex + 1) + "/" + root.items.length : ""; color: root.foreground; font.pixelSize: 11 }
     }
     MouseArea {
         id: pointer

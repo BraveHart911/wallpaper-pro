@@ -11,6 +11,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg qt6-declarative-dev-tools qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-templates qml6-module-qtquick-window qml6-module-qtqml-workerscript qml6-module-qttest
       - run: python -m unittest discover -s tests -v
       - run: python -m json.tool manifest.json > /dev/null
+      - run: node --check context/analyze.mjs && node --check context/similarity.mjs
       - name: Test color spectrum interactions
         env:
           QT_QPA_PLATFORM: offscreen

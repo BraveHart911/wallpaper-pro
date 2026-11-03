@@ -396,6 +396,10 @@ def update(state, args, data):
         state['pauseOnFullscreen'] = args.value == 'on'
     elif args.command == 'battery':
         state['pauseOnBattery'] = args.value == 'on'
+    elif args.command == 'context':
+        if args.value == 'on' and not context_node(data):
+            raise ValueError('Enable smart grouping in Settings to install the local image model first')
+        state['contextEnabled'] = args.value == 'on'
     elif args.command == 'sort':
         state['sortOrder'] = args.order
     elif args.command == 'off':
@@ -535,13 +539,158 @@ def sync_themes(config, data, progress=None):
         snapshot = with_starter_library(load(config / 'settings.json'))
         samples = {media['thumbnailUrl']: media for media in discovery['library'] + snapshot['library'] if media.get('thumbnailUrl')}
         color_cache = analyze_library_colors(list(samples.values()), data, progress)
+        context_cache = read_context_cache(data)
+        context_error = ''
+        if snapshot.get('contextEnabled'):
+            try:
+                context_cache = analyze_library_context(list(samples.values()), config, data, progress)
+            except (ValueError, OSError, subprocess.SubprocessError) as error:
+                context_error = str(error)
         with (config / '.lock').open('w') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             path = config / 'settings.json'
             state = apply_cached_colors(merge_theme_library(with_starter_library(load(path)), discovery), color_cache)
+            state = apply_cached_context(state, context_cache, data)
+            state['contextError'] = context_error
             if not path.exists() or json.loads(path.read_text()) != state:
                 save(path, state)
             return state
+
+
+CONTEXT_VERSION = 'clip-context-v3'
+CONTEXT_LABEL_VERSION = 'subjects-v2'
+CONTEXT_MODEL = 'Xenova/clip-vit-base-patch32'
+
+
+def context_node(data):
+    try:
+        ready = json.loads((data / 'context-runtime/ready.json').read_text())
+        node = next((candidate for candidate in (ready.get('node'), shutil.which('node')) if candidate and os.access(candidate, os.X_OK)), None)
+        if ready.get('model') == CONTEXT_MODEL and node:
+            module = data / 'context-runtime/node_modules/@huggingface/transformers/src/transformers.js'
+            if module.is_file():
+                return node
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def read_context_cache(data):
+    try:
+        cache = json.loads((data / 'context-index.json').read_text())
+        return cache if cache.get('version') == CONTEXT_VERSION else {}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def context_band(media):
+    if not media.get('dominantColor'):
+        return 15
+    if media.get('colorNeutral'):
+        return 12 + (0 if media.get('colorValue', 0) < .22 else 2 if media.get('colorValue', 0) > .78 else 1)
+    return int(((media.get('colorHue', 0) + 15) % 360) // 30)
+
+
+def context_records(media_list):
+    records = {}
+    for media in media_list:
+        path = thumbnail_path(media)
+        if path is None:
+            continue
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        records[str(path)] = {key: media[key] for key in ('id', 'dominantColor', 'colorHue', 'colorValue', 'colorNeutral') if key in media}
+        records[str(path)].update(path=str(path), fingerprint=[stat.st_size, str(stat.st_mtime_ns)])
+    return sorted(records.values(), key=lambda record: record['path'])
+
+
+def apply_cached_context(state, cache, data):
+    state['contextAvailable'] = bool(context_node(data))
+    entries = cache.get('items', {})
+    for media in state['library']:
+        path = thumbnail_path(media)
+        entry = entries.get(str(path), {}) if path else {}
+        try:
+            stat = path.stat() if path else None
+            valid = stat and entry.get('group') and entry.get('fingerprint') == [stat.st_size, str(stat.st_mtime_ns)]
+        except OSError:
+            valid = False
+        if valid:
+            media.update(contextGroup=entry['group'], contextRank=entry.get('rank', 0),
+                         contextSimilarity=round(entry.get('similarity', 0), 4), contextUncertain=entry.get('uncertain', True))
+        else:
+            for key in ('contextGroup', 'contextRank', 'contextSimilarity', 'contextUncertain'):
+                media.pop(key, None)
+    state['contextReport'] = {'analyzed': sum(bool(media.get('contextGroup')) for media in state['library']),
+                              'total': len(state['library']), 'model': CONTEXT_MODEL}
+    return state
+
+
+def run_context_process(command, progress=None):
+    with tempfile.TemporaryFile(mode='w+') as errors:
+        with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=errors, text=True) as process:
+            for line in process.stdout:
+                try:
+                    event = json.loads(line)
+                    if progress:
+                        progress(event)
+                except ValueError:
+                    pass
+            code = process.wait()
+        if code:
+            errors.seek(0)
+            detail = errors.read()[-1600:].strip()
+            raise ValueError('Local image analysis failed: ' + (detail or str(code)))
+
+
+def analyze_library_context(media_list, config, data, progress=None):
+    cache = read_context_cache(data)
+    node = context_node(data)
+    if not node:
+        return cache
+    records = context_records(media_list)
+    membership = [[record['id'], record['fingerprint'], context_band(record)] for record in records]
+    if cache.get('labelVersion') == CONTEXT_LABEL_VERSION and cache.get('membership') == membership and all(cache.get('items', {}).get(record['path'], {}).get('fingerprint') == record['fingerprint'] for record in records):
+        return cache
+    with (config / '.context-sync.lock').open('w') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return read_context_cache(data)
+        fd, temporary = tempfile.mkstemp(dir=data, prefix='.context-input-', suffix='.json')
+        try:
+            with os.fdopen(fd, 'w') as output:
+                json.dump(records, output)
+            worker = Path(__file__).resolve().parents[1] / 'context/analyze.mjs'
+            run_context_process([node, str(worker), str(data), temporary], progress)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+    return read_context_cache(data)
+
+
+def install_context(data, progress=None):
+    existing_node = context_node(data)
+    if existing_node:
+        worker = Path(__file__).resolve().parents[1] / 'context/analyze.mjs'
+        run_context_process([existing_node, str(worker), str(data), '--warmup'], progress)
+        return
+    node, npm = shutil.which('node'), shutil.which('npm')
+    if not node or not npm:
+        raise ValueError('Install Node.js and npm, then enable smart grouping again')
+    source = Path(__file__).resolve().parents[1] / 'context'
+    runtime = data / 'context-runtime'
+    runtime.mkdir(parents=True, exist_ok=True)
+    for name in ('package.json', 'package-lock.json'):
+        shutil.copyfile(source / name, runtime / name)
+    if progress:
+        progress({'event': 'setup-progress', 'message': 'Installing isolated local image analysis tools…'})
+    result = subprocess.run([npm, 'ci', '--prefix', str(runtime), '--ignore-scripts', '--no-audit', '--no-fund'],
+                            capture_output=True, text=True, timeout=600, check=False)
+    if result.returncode:
+        raise ValueError('Context runtime installation failed: ' + result.stderr[-1000:])
+    run_context_process([node, str(source / 'analyze.mjs'), str(data), '--warmup'], progress)
 
 
 def competing_wallpapers(layers, monitors):
@@ -584,6 +733,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
     commands.add_parser('status')
+    commands.add_parser('install-context', help='Download and enable isolated local image analysis')
+    context = commands.add_parser('context')
+    context.add_argument('value', choices=['on', 'off'])
     sorting = commands.add_parser('sort')
     sorting.add_argument('order', choices=['original', 'name', 'color'])
     themes = commands.add_parser('sync-themes', help='Discover wallpapers in installed Omarchy themes')
@@ -620,13 +772,17 @@ def main():
         progress = (lambda event: print(json.dumps(event), flush=True)) if args.progress else None
         print(json.dumps(sync_themes(config, data, progress)))
         return
+    if args.command == 'install-context':
+        install_context(data, lambda event: print(json.dumps(event), flush=True))
     with (config / '.lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         path = config / 'settings.json'
-        state = apply_cached_colors(with_starter_library(load(path)), read_color_cache(data))
+        state = apply_cached_context(apply_cached_colors(with_starter_library(load(path)), read_color_cache(data)), read_context_cache(data), data)
         if args.command in ('status', 'thumbnails'):
             state = ensure_thumbnails(state, data, getattr(args, 'force', False))
-        if args.command == 'import-folder':
+        if args.command == 'install-context':
+            state['contextEnabled'] = True
+        elif args.command == 'import-folder':
             progress = (lambda event: print(json.dumps(event), flush=True)) if args.progress else None
             state = import_folder(state, args.source, data, progress, lambda current: save(path, current))
         elif args.command not in ('status', 'thumbnails'):
