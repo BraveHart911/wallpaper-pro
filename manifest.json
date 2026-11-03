@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "bravehart911.wallpaper-pro",
+  "name": "Wallpaper Pro",
+  "version": "0.1.0",
+  "author": "BraveHart911",
+  "description": "A personal image and live wallpaper library with independent monitor assignments and panoramic image spanning.",
+  "kinds": ["service", "overlay", "bar-widget"],
+  "entryPoints": {"service": "WallpaperService.qml", "overlay": "WallpaperPro.qml", "barWidget": "BarLauncher.qml"},
+  "barWidget": {"displayName": "Wallpaper Pro", "category": "Appearance", "defaultSection": "right", "allowMultiple": false}
+}
