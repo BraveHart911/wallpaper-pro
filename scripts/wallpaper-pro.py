@@ -877,7 +877,7 @@ def monitor_set(args):
     updated = call.sub(update_monitor, original)
     if not found:
         updated = updated.rstrip() + '\n\nhl.monitor({ output = "' + args.name + '", mode = "' + args.mode + '", position = "' + str(args.x) + 'x' + str(args.y) + '", scale = ' + str(args.scale) + ' })\n'
-    stamp = time.strftime('%Y%m%d-%H%M%S')
+    stamp = time.strftime('%Y%m%d-%H%M%S') + '-' + str(time.time_ns() % 1_000_000_000)
     backup = config.with_name(config.name + '.bak-wallpaper-pro-' + stamp)
     shutil.copy2(config, backup)
     config.write_text(updated)
@@ -917,6 +917,108 @@ def monitor_brightness(args):
     if result.returncode:
         raise ValueError('Could not set brightness on ' + args.name + ': ' + (result.stderr.strip() or result.stdout.strip())[-300:])
     print(json.dumps({'ok': True, 'name': args.name, 'value': args.value, 'maximum': maximum}))
+
+
+def monitor_restore(args):
+    config = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'hypr/monitors.lua'
+    backup = Path(args.backup).expanduser().resolve()
+    expected_parent = config.parent.resolve()
+    if backup.parent != expected_parent or not backup.name.startswith(config.name + '.bak-wallpaper-pro-') or not backup.is_file():
+        raise ValueError('This monitor backup is missing or is not a Wallpaper Pro backup')
+    shutil.copy2(backup, config)
+    reload_result = subprocess.run(['hyprctl', 'reload'], capture_output=True, text=True, timeout=12, check=False)
+    errors = subprocess.run(['hyprctl', 'configerrors'], capture_output=True, text=True, timeout=8, check=False)
+    if reload_result.returncode or errors.returncode or errors.stdout.strip():
+        raise ValueError('The saved monitor layout could not be restored cleanly')
+    print(json.dumps({'ok': True}))
+
+
+def monitor_profile(args):
+    config_dir, _ = directories()
+    path = config_dir / 'monitor-profiles.json'
+    profiles = json.loads(path.read_text()) if path.exists() else []
+    if not isinstance(profiles, list):
+        raise ValueError('Monitor profile data is invalid')
+    if args.action == 'list':
+        print(json.dumps({'profiles': profiles}))
+        return
+    if args.action == 'save':
+        name = args.name.strip()
+        if not name or len(name) > 48:
+            raise ValueError('Enter a profile name between 1 and 48 characters')
+        if not shutil.which('hyprctl'):
+            raise ValueError('Hyprland is not available')
+        result = subprocess.run(['hyprctl', 'monitors', '-j'], capture_output=True, text=True, timeout=8, check=True)
+        monitors = json.loads(result.stdout)
+        snapshot = [{'name': item['name'], 'mode': str(item.get('width', 0)) + 'x' + str(item.get('height', 0)) + '@' + str(round(item.get('refreshRate', 0), 2)),
+                     'x': int(item.get('x', 0)), 'y': int(item.get('y', 0)), 'scale': float(item.get('scale', 1))} for item in monitors]
+        profile = {'name': name, 'monitors': snapshot, 'updatedAt': int(time.time())}
+        profiles = [item for item in profiles if str(item.get('name', '')).casefold() != name.casefold()]
+        profiles.append(profile)
+        profiles.sort(key=lambda item: str(item.get('name', '')).casefold())
+        save(path, profiles)
+        print(json.dumps({'ok': True, 'profiles': profiles}))
+        return
+    if args.action == 'delete':
+        profiles = [item for item in profiles if item.get('name') != args.name]
+        save(path, profiles)
+        print(json.dumps({'ok': True, 'profiles': profiles}))
+        return
+    profile = next((item for item in profiles if item.get('name') == args.name), None)
+    if profile is None:
+        raise ValueError('Monitor profile not found: ' + args.name)
+    if not shutil.which('hyprctl'):
+        raise ValueError('Hyprland is not available')
+    connected = json.loads(subprocess.run(['hyprctl', 'monitors', '-j'], capture_output=True, text=True, timeout=8, check=True).stdout)
+    by_name = {item.get('name'): item for item in connected}
+    updates = profile.get('monitors', [])
+    if not updates or any(item.get('name') not in by_name for item in updates):
+        raise ValueError('Connect the displays saved in this profile before applying it')
+    available = {item['name']: item['modes'] for item in monitor_catalog_data(connected)}
+    for item in updates:
+        if item.get('mode') not in {mode['value'] for mode in available.get(item['name'], [])}:
+            raise ValueError('Saved mode is no longer supported by ' + item['name'])
+        if not (-20000 <= int(item.get('x', 0)) <= 20000 and -20000 <= int(item.get('y', 0)) <= 20000 and 0.5 <= float(item.get('scale', 1)) <= 3.0):
+            raise ValueError('Saved position or scale is outside the supported range')
+    config = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'hypr/monitors.lua'
+    if not config.is_file():
+        raise ValueError('Could not find ~/.config/hypr/monitors.lua')
+    original = config.read_text()
+    calls = re.compile(r'hl\.monitor\(\s*\{([^{}]*)\}\s*\)', re.S)
+    updated_names = set()
+    def update_call(match):
+        body = match.group(1)
+        output = re.search(r'output\s*=\s*["\']([^"\']*)["\']', body)
+        if not output:
+            return match.group(0)
+        name = output.group(1)
+        target = next((item for item in updates if item['name'] == name), None)
+        if not target:
+            return match.group(0)
+        updated_names.add(name)
+        fields = {'mode': '"' + target['mode'] + '"', 'position': '"' + str(int(target['x'])) + 'x' + str(int(target['y'])) + '"', 'scale': str(float(target['scale']))}
+        for field, value in fields.items():
+            field_pattern = re.compile(r'\b' + field + r'\s*=\s*(?:"[^"]*"|\'[^\']*\'|[\d.]+|[A-Za-z_][\w.]*)')
+            if field_pattern.search(body):
+                body = field_pattern.sub(field + ' = ' + value, body, count=1)
+            else:
+                body = body.rstrip() + ', ' + field + ' = ' + value
+        return 'hl.monitor({ ' + body.strip() + ' })'
+    updated = calls.sub(update_call, original)
+    for item in updates:
+        if item['name'] not in updated_names:
+            updated += '\n\nhl.monitor({ output = "' + item['name'] + '", mode = "' + item['mode'] + '", position = "' + str(int(item['x'])) + 'x' + str(int(item['y'])) + '", scale = ' + str(float(item['scale'])) + ' })'
+    stamp = time.strftime('%Y%m%d-%H%M%S') + '-' + str(time.time_ns() % 1_000_000_000)
+    backup = config.with_name(config.name + '.bak-wallpaper-pro-' + stamp)
+    shutil.copy2(config, backup)
+    config.write_text(updated + ('\n' if not updated.endswith('\n') else ''))
+    reload_result = subprocess.run(['hyprctl', 'reload'], capture_output=True, text=True, timeout=12, check=False)
+    errors = subprocess.run(['hyprctl', 'configerrors'], capture_output=True, text=True, timeout=8, check=False)
+    if reload_result.returncode or errors.returncode or errors.stdout.strip():
+        shutil.copy2(backup, config)
+        subprocess.run(['hyprctl', 'reload'], capture_output=True, text=True, timeout=12, check=False)
+        raise ValueError('Hyprland rejected the monitor profile. The previous configuration was restored.')
+    print(json.dumps({'ok': True, 'backup': str(backup), 'profile': args.name}))
 
 
 def monitor_catalog_data(monitors):
@@ -961,6 +1063,11 @@ def main():
     monitor.add_argument('--y', required=True, type=int)
     monitor.add_argument('--scale', required=True, type=float)
     monitor.add_argument('--brightness', type=int)
+    restore = commands.add_parser('monitor-restore', help='Restore a saved monitor configuration backup')
+    restore.add_argument('backup')
+    profile = commands.add_parser('monitor-profile', help='Save, apply, list, or remove monitor layouts')
+    profile.add_argument('action', choices=['list', 'save', 'apply', 'delete'])
+    profile.add_argument('--name', default='')
     brightness = commands.add_parser('monitor-brightness', help='Adjust display brightness without changing monitor layout')
     brightness.add_argument('name')
     brightness.add_argument('value', type=int)
@@ -993,6 +1100,12 @@ def main():
         return
     if args.command == 'monitor-set':
         monitor_set(args)
+        return
+    if args.command == 'monitor-restore':
+        monitor_restore(args)
+        return
+    if args.command == 'monitor-profile':
+        monitor_profile(args)
         return
     if args.command == 'monitor-brightness':
         monitor_brightness(args)

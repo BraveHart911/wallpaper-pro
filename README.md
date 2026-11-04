@@ -12,7 +12,7 @@ An Omarchy shell plugin for a personal image and live wallpaper collection.
 - Favorite wallpapers from their cards and browse them in a persistent Favorites library using the same selected sort order as All wallpapers.
 - Automatically discover installed Omarchy theme wallpapers and generate their thumbnails.
 - Browse installed themes ordered by their accent hue, with a matching color swatch, color-family label, and Light/Dark mode badge; search and apply themes in place, inspect the current background, and cycle backgrounds from the in-app Themes & appearance page.
-- Inspect connected monitor identity, serial number, physical size, active mode, position, scale, transform, variable-refresh support, and supported modes from the Monitor control page. Configure resolution/refresh, logical placement, and scale; hardware brightness adjusts while dragging for displays exposing DDC/CI brightness. Applying display layout settings backs up Omarchy's `~/.config/hypr/monitors.lua` and reloads Hyprland.
+- Inspect connected monitor identity, serial number, physical size, active mode, position, scale, transform, variable-refresh support, and supported modes from the Monitor control page. Configure resolution/refresh, logical placement, and scale; hardware brightness adjusts while dragging for displays exposing DDC/CI brightness. Link brightness across compatible displays, save named monitor setups, and apply them with a 15-second keep-or-revert confirmation. Every layout change backs up Omarchy's `~/.config/hypr/monitors.lua` before reloading Hyprland.
 - Arrange proportional virtual monitors by dragging them in the layout map. Each monitor previews its currently assigned wallpaper thumbnail; panoramic span mode previews the image across the complete monitor arrangement.
 - Import local images and videos through a file picker, with automatically generated thumbnail images.
 - Add a folder to recursively import supported images and videos from every subfolder, with progress and duplicate detection.
@@ -58,6 +58,12 @@ Open Wallpaper Pro from its bar icon. Choose **+ Add wallpapers** to add files, 
 Wallpaper Pro adds click-through bottom-layer windows and does not rewrite Omarchy's theme, wallpaper, Hyprland startup, or other plugins' settings. Other live wallpaper plugins may compete for the same desktop layer; turn those off through their own controls while using Wallpaper Pro. Stock backgrounds remain underneath.
 
 The manager stays loaded when closed so wallpapers continue playing. Disabling the plugin removes its renderer; turning wallpapers off destroys its video players. Plugin updates may require `omarchy restart shell` to replace already loaded QML components.
+
+## Monitor control
+
+The Monitor control page shows the connected display layout, the wallpaper assigned to each monitor, and detailed display information. Drag a display on the map to draft its position, click it to highlight its settings card, then apply that display’s position, resolution, and scale together. The card shows coordinates as information; positioning is done on the map. Wallpaper Pro saves a recovery copy of `~/.config/hypr/monitors.lua` and gives you 15 seconds to keep or revert each applied change. If you do not confirm in time, the previous configuration is restored automatically.
+
+Save the active arrangement as a named setup to restore it later, such as for a docked or undocked desk. A setup can be applied when all displays it references are connected and its saved modes remain supported. The optional **Link brightness** control sends the same brightness percentage to every connected display that exposes DDC/CI brightness. Displays without hardware brightness control are identified and can still be adjusted through their physical on-screen display controls.
 
 ## Hyprland and Omarchy compatibility
 

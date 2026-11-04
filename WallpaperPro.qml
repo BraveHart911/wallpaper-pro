@@ -84,10 +84,24 @@ Item {
                 try {
                     root.monitors = JSON.parse(text).monitors || []
                     const positions = {}
+                    const appliedBrightness = Object.assign({}, root.monitorBrightnessApplied)
                     root.monitors.forEach(item => positions[item.name] = {x: item.x, y: item.y})
+                    root.monitors.forEach(item => {
+                        if (item.brightness && item.brightness.available)
+                            appliedBrightness[item.name] = Math.round(item.brightness.value * 100 / Math.max(1, item.brightness.maximum || 100))
+                    })
+                    root.monitorBrightnessApplied = appliedBrightness
                     root.monitorPositions = positions
+                    if (!root.monitors.some(item => item.name === root.monitorSelectedName)) {
+                        const active = root.monitors.find(item => item.focused)
+                        root.monitorSelectedName = active ? active.name : root.monitors.length ? root.monitors[0].name : ""
+                    }
                     root.rebuildMonitorMapBounds()
                     root.monitorError = ""
+                    if (!monitorProfileProcess.running) {
+                        root.monitorProfileAction = "list"
+                        monitorProfileProcess.running = true
+                    }
                 }
                 catch (e) { root.monitorError = "Could not read connected display information." }
             }
@@ -97,14 +111,64 @@ Item {
     Process {
         id: monitorApplyProcess
         command: ["python3", root.script, "monitor-set"].concat(root.monitorArgs)
+        stdout: StdioCollector { onStreamFinished: { try { root.beginMonitorConfirmation(JSON.parse(text).backup || "") } catch (e) { root.monitorError = "Layout was applied, but its rollback backup could not be read." } } }
         stderr: StdioCollector { onStreamFinished: if (text.trim()) root.monitorError = text.trim() }
         onExited: function(code, status) {
             root.monitorApplying = false
             if (code === 0) {
-                root.monitorMessage = "Monitor settings applied. A backup of monitors.lua was saved."
                 root.monitorError = ""
                 root.refreshMonitors()
             } else if (!root.monitorError) root.monitorError = "Could not apply monitor settings."
+        }
+    }
+    Process {
+        id: monitorProfileProcess
+        command: ["python3", root.script, "monitor-profile", root.monitorProfileAction].concat(root.monitorProfileAction === "list" ? [] : ["--name", root.monitorProfileName])
+        stdout: StdioCollector { onStreamFinished: { try { root.monitorProfileResult = JSON.parse(text) } catch (e) { root.monitorProfileResult = ({}) } } }
+        stderr: StdioCollector { onStreamFinished: if (text.trim()) root.monitorError = text.trim() }
+        onExited: function(code, status) {
+            if (code !== 0) { if (!root.monitorError) root.monitorError = "Monitor profile action failed."; return }
+            const result = root.monitorProfileResult || {}
+            if (root.monitorProfileAction === "list" || root.monitorProfileAction === "save" || root.monitorProfileAction === "delete") {
+                root.monitorProfiles = result.profiles || []
+                if (root.monitorProfileAction === "delete")
+                    root.monitorSelectedProfile = root.monitorProfiles.some(item => item.name === root.monitorSelectedProfile) ? root.monitorSelectedProfile : (root.monitorProfiles.length ? root.monitorProfiles[0].name : "")
+                else if (root.monitorProfileName) root.monitorSelectedProfile = root.monitorProfileName
+                else if (!root.monitorProfiles.some(item => item.name === root.monitorSelectedProfile))
+                    root.monitorSelectedProfile = root.monitorProfiles.length ? root.monitorProfiles[0].name : ""
+                if (root.monitorProfileAction !== "list") root.monitorMessage = root.monitorProfileAction === "save" ? "Monitor setup saved." : "Monitor setup removed."
+            } else if (root.monitorProfileAction === "apply") {
+                root.monitorError = ""
+                root.beginMonitorConfirmation(result.backup || "")
+                root.refreshMonitors()
+            }
+        }
+    }
+    Process {
+        id: monitorRestoreProcess
+        command: ["python3", root.script, "monitor-restore", root.monitorPendingBackup]
+        stderr: StdioCollector { onStreamFinished: if (text.trim()) root.monitorError = text.trim() }
+        onExited: function(code, status) {
+            root.monitorConfirmTimer.stop()
+            root.monitorConfirmSeconds = 0
+            if (code === 0) {
+                root.monitorPendingBackup = ""
+                root.monitorError = ""
+                root.monitorMessage = "Previous monitor setup restored."
+                root.refreshMonitors()
+            } else if (!root.monitorError) root.monitorError = "Could not restore the previous monitor setup."
+        }
+    }
+    Timer {
+        id: monitorConfirmTimer
+        interval: 1000
+        repeat: true
+        onTriggered: {
+            root.monitorConfirmSeconds -= 1
+            if (root.monitorConfirmSeconds <= 0) {
+                stop()
+                if (root.monitorPendingBackup && !monitorRestoreProcess.running) monitorRestoreProcess.running = true
+            }
         }
     }
     Process {
@@ -114,6 +178,11 @@ Item {
             onStreamFinished: {
                 try {
                     const result = JSON.parse(text)
+                    root.monitors = root.monitors.map(item => {
+                        if (item.name !== result.name || !item.brightness || !item.brightness.available) return item
+                        const brightness = Object.assign({}, item.brightness, {value: Math.round((item.brightness.maximum || 100) * result.value / 100)})
+                        return Object.assign({}, item, {brightness: brightness})
+                    })
                     if (!root.monitorBrightnessDragging && result.name === root.monitorBrightnessSendingTarget && result.value === root.monitorBrightnessSendingValue) {
                         root.monitorMessage = "Brightness set to " + result.value + "% on " + result.name + "."
                         root.monitorError = ""
@@ -128,18 +197,24 @@ Item {
             if (code === 0) {
                 root.monitorBrightnessLastAppliedTarget = root.monitorBrightnessSendingTarget
                 root.monitorBrightnessLastAppliedValue = root.monitorBrightnessSendingValue
-                if (!root.monitorBrightnessDragging && root.monitorBrightnessTarget === root.monitorBrightnessSendingTarget && root.monitorBrightnessValue === root.monitorBrightnessSendingValue)
-                    root.monitorMessage = "Brightness set to " + root.monitorBrightnessSendingValue + "% on " + root.monitorBrightnessSendingTarget + "."
+                const applied = Object.assign({}, root.monitorBrightnessApplied)
+                applied[root.monitorBrightnessSendingTarget] = root.monitorBrightnessSendingValue
+                root.monitorBrightnessApplied = applied
+                if (!root.monitorBrightnessDragging && root.monitorBrightnessQueue.length === 0)
+                    root.monitorMessage = root.monitorBrightnessLinked ? "Brightness synchronized across supported displays." : "Brightness set to " + root.monitorBrightnessSendingValue + "% on " + root.monitorBrightnessSendingTarget + "."
             }
-            if (root.monitorBrightnessTarget !== root.monitorBrightnessSendingTarget || root.monitorBrightnessValue !== root.monitorBrightnessSendingValue)
-                root.monitorBrightnessTimer.start()
+            if (root.monitorBrightnessQueue.length) root.monitorBrightnessTimer.start()
         }
     }
     Timer {
         id: monitorBrightnessTimer
         interval: 100
         repeat: false
-        onTriggered: if (!root.monitorBrightnessApplying && root.monitorBrightnessTarget && (root.monitorBrightnessTarget !== root.monitorBrightnessLastAppliedTarget || root.monitorBrightnessValue !== root.monitorBrightnessLastAppliedValue)) root.applyMonitorBrightness(root.monitorBrightnessTarget, root.monitorBrightnessValue, root.monitorBrightnessMaximum, root.monitorBrightnessBus)
+        onTriggered: if (!root.monitorBrightnessApplying && root.monitorBrightnessQueue.length) {
+            const next = root.monitorBrightnessQueue[0]
+            root.monitorBrightnessQueue = root.monitorBrightnessQueue.slice(1)
+            root.applyMonitorBrightness(next.name, next.value, next.maximum, next.bus)
+        }
     }
     Process {
         id: currentThemeProcess
@@ -191,10 +266,18 @@ Item {
     property string currentBackground: ""
     property var monitors: []
     property var monitorPositions: ({})
+    property string monitorSelectedName: ""
     property var monitorMapBounds: ({minX: -200, maxX: 200, minY: -200, maxY: 200})
     property var monitorArrangementBounds: ({minX: 0, maxX: 0, minY: 0, maxY: 0})
     property var monitorArgs: []
     property bool monitorApplying: false
+    property string monitorPendingBackup: ""
+    property int monitorConfirmSeconds: 0
+    property var monitorProfiles: []
+    property string monitorProfileName: ""
+    property string monitorSelectedProfile: ""
+    property string monitorProfileAction: "list"
+    property var monitorProfileResult: ({})
     property var monitorBrightnessArgs: []
     property string monitorBrightnessTarget: ""
     property int monitorBrightnessValue: 0
@@ -206,6 +289,9 @@ Item {
     property int monitorBrightnessLastAppliedValue: -1
     property bool monitorBrightnessApplying: false
     property bool monitorBrightnessDragging: false
+    property bool monitorBrightnessLinked: false
+    property var monitorBrightnessQueue: []
+    property var monitorBrightnessApplied: ({})
     property string monitorError: ""
     property string monitorMessage: ""
     property string themeSearch: ""
@@ -216,6 +302,7 @@ Item {
     readonly property bool compact: panel.width < 900
     readonly property bool inlineLiveSelector: panel.width >= 1180
     readonly property bool dark: (Qt.color(theme.colors.background).r + Qt.color(theme.colors.background).g + Qt.color(theme.colors.background).b) < 1.5
+    readonly property bool monitorPositionsDirty: monitors.some(item => Math.round(monitorPositionX(item.name)) !== Math.round(item.x) || Math.round(monitorPositionY(item.name)) !== Math.round(item.y))
     readonly property color surface: Qt.tint(theme.colors.background, Qt.rgba(0.5, 0.5, 0.5, 0.07))
     readonly property color divider: Qt.rgba(0.5, 0.5, 0.5, 0.15)
     readonly property var sections: ["All wallpapers", "Live wallpapers", "Single monitor", "Dual panorama", "My imports", "Favorites", "Theme wallpapers"]
@@ -319,8 +406,33 @@ Item {
         if (!currentBackgroundProcess.running) currentBackgroundProcess.running = true
     }
     function refreshMonitors() {
-        monitorMessage = ""
+        if (!monitorPendingBackup) monitorMessage = ""
         if (!monitorCatalogProcess.running) monitorCatalogProcess.running = true
+    }
+    function beginMonitorConfirmation(backup) {
+        if (!backup) return
+        monitorPendingBackup = backup
+        monitorConfirmSeconds = 15
+        monitorMessage = "Keep this display layout? It will revert in 15 seconds unless you confirm."
+        monitorConfirmTimer.restart()
+    }
+    function confirmMonitorChanges() {
+        monitorConfirmTimer.stop()
+        monitorPendingBackup = ""
+        monitorConfirmSeconds = 0
+        monitorMessage = "Monitor layout saved. A recovery backup was kept."
+    }
+    function revertMonitorChanges() {
+        monitorConfirmTimer.stop()
+        if (monitorPendingBackup && !monitorRestoreProcess.running) monitorRestoreProcess.running = true
+    }
+    function runMonitorProfile(action, name) {
+        if (monitorProfileProcess.running || monitorPendingBackup) return
+        monitorError = ""
+        monitorMessage = ""
+        monitorProfileAction = action
+        monitorProfileName = name || ""
+        monitorProfileProcess.running = true
     }
     function monitorPositionX(name) {
         const position = monitorPositions[name]
@@ -351,7 +463,7 @@ Item {
         monitorMapBounds = {minX: minX - 180, minY: minY - 140, maxX: maxX + 180, maxY: maxY + 140}
     }
     function applyMonitor(name, modeValue, x, y, scale) {
-        if (monitorApplying) return
+        if (monitorApplying || monitorPendingBackup) return
         monitorError = ""
         monitorMessage = ""
         monitorArgs = [name, "--mode", modeValue, "--x", String(x), "--y", String(y), "--scale", String(scale)]
@@ -365,8 +477,13 @@ Item {
         monitorBrightnessBus = Number(bus)
         monitorBrightnessDragging = dragging
         monitorError = ""
-        if (!monitorBrightnessApplying && !monitorBrightnessTimer.running && (name !== monitorBrightnessLastAppliedTarget || monitorBrightnessValue !== monitorBrightnessLastAppliedValue))
-            monitorBrightnessTimer.start()
+        const targets = monitorBrightnessLinked ? monitors.filter(item => item.brightness && item.brightness.available) : monitors.filter(item => item.name === name)
+        monitorBrightnessQueue = targets.map(item => ({name: item.name, value: monitorBrightnessValue,
+            maximum: item.brightness && item.brightness.maximum || maximum,
+            bus: item.brightness && item.brightness.bus !== undefined ? item.brightness.bus : bus}))
+            .filter(item => monitorBrightnessApplied[item.name] !== item.value ||
+                (monitorBrightnessApplying && item.name === monitorBrightnessSendingTarget && item.value !== monitorBrightnessSendingValue))
+        if (!monitorBrightnessApplying && monitorBrightnessQueue.length && !monitorBrightnessTimer.running) monitorBrightnessTimer.start()
         if (!dragging && name === monitorBrightnessLastAppliedTarget && monitorBrightnessValue === monitorBrightnessLastAppliedValue)
             monitorMessage = "Brightness set to " + monitorBrightnessValue + "% on " + name + "."
     }
@@ -958,10 +1075,16 @@ Item {
                                     Rectangle {
                                         visible: root.monitorError !== "" || root.monitorMessage !== ""
                                         Layout.fillWidth: true
-                                        implicitHeight: monitorNotice.implicitHeight + 22
+                                        implicitHeight: monitorNoticeLayout.implicitHeight + 22
                                         radius: 10
                                         color: root.monitorError ? Qt.rgba(0.9,0.14,0.14,0.10) : Qt.rgba(0.04,0.52,1,0.08)
-                                        Label { id: monitorNotice; anchors.fill: parent; anchors.margins: 11; text: root.monitorError || root.monitorMessage; color: root.monitorError ? theme.colors.red : theme.secondary; wrapMode: Text.Wrap; font.pixelSize: 12 }
+                                        RowLayout {
+                                            id: monitorNoticeLayout
+                                            anchors.fill: parent; anchors.margins: 11; spacing: 8
+                                            Label { id: monitorNotice; Layout.fillWidth: true; text: root.monitorError || root.monitorMessage; color: root.monitorError ? theme.colors.red : theme.secondary; wrapMode: Text.Wrap; font.pixelSize: 12 }
+                                            ProButton { visible: !!root.monitorPendingBackup; text: monitorRestoreProcess.running ? "Reverting…" : "Revert · " + root.monitorConfirmSeconds + "s"; quiet: true; enabled: !monitorRestoreProcess.running; onClicked: root.revertMonitorChanges() }
+                                            ProButton { visible: !!root.monitorPendingBackup; text: "Keep layout"; primary: true; enabled: !monitorRestoreProcess.running; onClicked: root.confirmMonitorChanges() }
+                                        }
                                     }
                                     ScrollView {
                                         id: monitorScroll
@@ -974,6 +1097,55 @@ Item {
                                             width: Math.min(monitorScroll.availableWidth, 1080)
                                             x: Math.max(0, (monitorScroll.availableWidth - width) / 2)
                                             spacing: 12
+                                            Rectangle {
+                                                Layout.fillWidth: true
+                                                implicitHeight: profileControls.implicitHeight + 26
+                                                radius: 13
+                                                color: root.surface
+                                                border.color: root.divider
+                                                ColumnLayout {
+                                                    id: profileControls
+                                                    anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
+                                                    anchors.margins: 13; spacing: 9
+                                                    RowLayout {
+                                                        Layout.fillWidth: true
+                                                        ColumnLayout {
+                                                            Layout.fillWidth: true; spacing: 2
+                                                            Label { text: "Saved setups"; color: theme.colors.foreground; font.pixelSize: 14; font.weight: Font.DemiBold }
+                                                            Label { text: "Save arrangements for your desk, dock, or other monitor combinations."; color: theme.secondary; font.pixelSize: 11; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                                                        }
+                                                        CheckBox { visible: !monitorPage.narrow; text: "Link brightness"; checked: root.monitorBrightnessLinked; onToggled: root.monitorBrightnessLinked = checked; Accessible.name: "Synchronize brightness on supported displays" }
+                                                    }
+                                                    CheckBox { visible: monitorPage.narrow; text: "Link brightness on supported displays"; checked: root.monitorBrightnessLinked; onToggled: root.monitorBrightnessLinked = checked; Accessible.name: "Synchronize brightness on supported displays" }
+                                                    GridLayout {
+                                                        Layout.fillWidth: true
+                                                        columns: monitorPage.narrow ? 2 : 4
+                                                        columnSpacing: 8; rowSpacing: 8
+                                                        TextField {
+                                                            id: profileNameField
+                                                            Layout.fillWidth: true
+                                                            placeholderText: "Setup name"
+                                                            selectByMouse: true
+                                                            background: Rectangle { radius: 9; color: root.surface; border.color: profileNameField.activeFocus ? (theme.colors.accent || "#0a84ff") : root.divider }
+                                                            Accessible.name: "Name for saved monitor setup"
+                                                        }
+                                                        ProButton { text: "Save current"; primary: true; enabled: !monitorProfileProcess.running && !!profileNameField.text.trim() && root.monitors.length > 0; onClicked: root.runMonitorProfile("save", profileNameField.text.trim()) }
+                                                        ProCombo {
+                                                            id: savedProfileCombo
+                                                            Layout.fillWidth: true
+                                                            model: root.monitorProfiles.map(item => item.name)
+                                                            currentIndex: Math.max(0, root.monitorProfiles.findIndex(item => item.name === root.monitorSelectedProfile))
+                                                            onActivated: root.monitorSelectedProfile = root.monitorProfiles[currentIndex].name
+                                                            Accessible.name: "Saved monitor setups"
+                                                        }
+                                                        RowLayout {
+                                                            Layout.fillWidth: true
+                                                        ProButton { text: "Apply setup"; primary: true; enabled: !monitorProfileProcess.running && !root.monitorPendingBackup && root.monitorProfiles.length > 0 && !!root.monitorSelectedProfile; onClicked: root.runMonitorProfile("apply", root.monitorSelectedProfile) }
+                                                            ProButton { text: "Remove"; quiet: true; enabled: !monitorProfileProcess.running && root.monitorProfiles.length > 0 && !!root.monitorSelectedProfile; onClicked: root.runMonitorProfile("delete", root.monitorSelectedProfile) }
+                                                        }
+                                                    }
+                                                }
+                                            }
                                             Rectangle {
                                                 Layout.fillWidth: true
                                                 Layout.preferredHeight: 278
@@ -990,9 +1162,9 @@ Item {
                                                             Layout.fillWidth: true
                                                             spacing: 2
                                                             Label { text: "Arrange your displays"; color: theme.colors.foreground; font.pixelSize: 14; font.weight: Font.DemiBold }
-                                                            Label { text: "Drag a monitor to change its position · coordinates are logical pixels"; color: theme.secondary; font.pixelSize: 11; wrapMode: Text.Wrap }
+                                                            Label { text: "Drag a display to reposition it. Click one to highlight its settings below."; color: theme.secondary; font.pixelSize: 11; wrapMode: Text.Wrap }
                                                         }
-                                                        Label { text: "ORIGIN  0 × 0"; color: theme.secondary; font.pixelSize: 9; font.letterSpacing: 0.5 }
+                                                        Label { text: root.monitorPositionsDirty ? "UNSAVED POSITIONS" : "DRAG TO ARRANGE"; color: root.monitorPositionsDirty ? (theme.colors.accent || "#0a84ff") : theme.secondary; font.pixelSize: 9; font.letterSpacing: 0.5 }
                                                     }
                                                     Item {
                                                         id: monitorMap
@@ -1032,8 +1204,8 @@ Item {
                                                                 radius: 9
                                                                 clip: true
                                                                 color: root.state.enabled && root.state.mode === "span" ? "transparent" : Qt.tint(root.surface, Qt.rgba(0.04,0.52,1,0.24))
-                                                                border.width: modelData.focused ? 2 : 1
-                                                                border.color: modelData.focused ? (theme.colors.accent || "#0a84ff") : Qt.rgba(0.4,0.65,0.9,0.5)
+                                                                border.width: root.monitorSelectedName === modelData.name ? 3 : modelData.focused ? 2 : 1
+                                                                border.color: root.monitorSelectedName === modelData.name ? (theme.colors.accent || "#0a84ff") : modelData.focused ? Qt.rgba(0.4,0.65,0.9,0.85) : Qt.rgba(0.4,0.65,0.9,0.5)
                                                                 Image {
                                                                     anchors.fill: parent
                                                                     anchors.margins: 1
@@ -1057,6 +1229,7 @@ Item {
                                                                     Label { anchors.horizontalCenter: parent.horizontalCenter; width: parent.width; text: root.monitorWallpaperName(mapMonitor.modelData.name); color: theme.colors.foreground; font.pixelSize: 10; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight; maximumLineCount: 1 }
                                                                 }
                                                                 Accessible.name: mapMonitor.modelData.name + " at " + root.monitorPositionX(mapMonitor.modelData.name) + " by " + root.monitorPositionY(mapMonitor.modelData.name) + ", showing " + root.monitorWallpaperName(mapMonitor.modelData.name)
+                                                                TapHandler { onTapped: root.monitorSelectedName = mapMonitor.modelData.name }
                                                                 DragHandler {
                                                                     id: monitorDrag
                                                                     target: null
@@ -1087,7 +1260,8 @@ Item {
                                                     implicitHeight: monitorDetails.implicitHeight + 28
                                                     radius: 13
                                                     color: root.surface
-                                                    border.color: root.divider
+                                                    border.width: root.monitorSelectedName === modelData.name ? 2 : 1
+                                                    border.color: root.monitorSelectedName === modelData.name ? (theme.colors.accent || "#0a84ff") : root.divider
                                                     ColumnLayout {
                                                         id: monitorDetails
                                                         anchors.left: parent.left
@@ -1119,7 +1293,7 @@ Item {
                                                             Label { text: "SERIAL"; color: theme.secondary; font.pixelSize: 9; font.letterSpacing: 1 }
                                                             Label { text: monitorCard.modelData.serial || "Not reported"; color: theme.colors.foreground; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
                                                             Label { text: "POSITION"; color: theme.secondary; font.pixelSize: 9; font.letterSpacing: 1 }
-                                                            Label { text: monitorCard.modelData.x + " × " + monitorCard.modelData.y + " logical px"; color: theme.colors.foreground; font.pixelSize: 11 }
+                                                            Label { text: Math.round(root.monitorPositionX(monitorCard.modelData.name)) + " × " + Math.round(root.monitorPositionY(monitorCard.modelData.name)) + " logical px"; color: theme.colors.foreground; font.pixelSize: 11 }
                                                             Label { text: "SCALE / TRANSFORM"; color: theme.secondary; font.pixelSize: 9; font.letterSpacing: 1 }
                                                             Label { text: monitorCard.modelData.scale + "×  ·  " + (monitorCard.modelData.transform || "normal"); color: theme.colors.foreground; font.pixelSize: 11 }
                                                             Label { text: "PHYSICAL SIZE"; color: theme.secondary; font.pixelSize: 9; font.letterSpacing: 1 }
@@ -1145,20 +1319,7 @@ Item {
                                                             ColumnLayout {
                                                                 Layout.fillWidth: true
                                                                 spacing: 5
-                                                                Label { text: "Position · logical pixels"; color: theme.colors.foreground; font.pixelSize: 11; font.weight: Font.DemiBold }
-                                                                RowLayout {
-                                                                    Layout.fillWidth: true
-                                                                    SpinBox { id: monitorX; Layout.fillWidth: true; from: -20000; to: 20000; editable: true; stepSize: 40; onValueModified: root.setMonitorPosition(monitorCard.modelData.name, value, monitorY.value); Accessible.name: "Monitor horizontal position" }
-                                                                    Label { text: "×"; color: theme.secondary }
-                                                                    SpinBox { id: monitorY; Layout.fillWidth: true; from: -20000; to: 20000; editable: true; stepSize: 40; onValueModified: root.setMonitorPosition(monitorCard.modelData.name, monitorX.value, value); Accessible.name: "Monitor vertical position" }
-                                                                    Binding { target: monitorX; property: "value"; value: root.monitorPositionX(monitorCard.modelData.name) }
-                                                                    Binding { target: monitorY; property: "value"; value: root.monitorPositionY(monitorCard.modelData.name) }
-                                                                }
-                                                            }
-                                                            ColumnLayout {
-                                                                Layout.fillWidth: true
-                                                                spacing: 5
-                                                                Label { text: "Display scale"; color: theme.colors.foreground; font.pixelSize: 11; font.weight: Font.DemiBold }
+                                                                Label { text: "Display scale · UI size"; color: theme.colors.foreground; font.pixelSize: 11; font.weight: Font.DemiBold }
                                                                 SpinBox { id: monitorScale; Layout.fillWidth: true; from: 50; to: 300; value: Math.round(monitorCard.modelData.scale * 100); stepSize: 25; editable: true; textFromValue: function(value, locale) { return (value / 100).toFixed(2) + "×" }; valueFromText: function(text, locale) { return Math.round(parseFloat(text.replace("×", "")) * 100) }; Accessible.name: "Display scale" }
                                                             }
                                                             ColumnLayout {
@@ -1187,13 +1348,13 @@ Item {
                                                                     }
                                                                     Label { text: root.monitorBrightnessApplying && root.monitorBrightnessTarget === monitorCard.modelData.name ? "…" : Math.round(monitorBrightness.value) + "%"; color: theme.secondary; font.pixelSize: 11; Layout.preferredWidth: 34 }
                                                                 }
-                                                                Label { visible: !monitorCard.modelData.brightness.available; text: "Not supported by this display"; color: theme.secondary; font.pixelSize: 11 }
+                                                                Label { visible: !monitorCard.modelData.brightness.available; text: "Hardware brightness unavailable · use this display’s OSD buttons"; color: theme.secondary; font.pixelSize: 11; wrapMode: Text.Wrap; Layout.fillWidth: true }
                                                             }
                                                         }
                                                         RowLayout {
                                                             Layout.fillWidth: true
                                                             Label { text: monitorCard.modelData.vrr ? "Variable refresh supported" : "Modes: " + monitorCard.modelData.modes.length; color: theme.secondary; font.pixelSize: 10; Layout.fillWidth: true }
-                                                            ProButton { text: root.monitorApplying ? "Applying…" : "Apply to " + monitorCard.modelData.name; primary: true; enabled: !root.monitorApplying && monitorCard.modelData.modes.length > 0; onClicked: root.applyMonitor(monitorCard.modelData.name, monitorCard.draftMode, root.monitorPositionX(monitorCard.modelData.name), root.monitorPositionY(monitorCard.modelData.name), monitorScale.value / 100) }
+                                                            ProButton { text: root.monitorApplying ? "Applying…" : "Apply " + monitorCard.modelData.name + " settings"; primary: true; enabled: !root.monitorApplying && !root.monitorPendingBackup && monitorCard.modelData.modes.length > 0; onClicked: root.applyMonitor(monitorCard.modelData.name, monitorCard.draftMode, root.monitorPositionX(monitorCard.modelData.name), root.monitorPositionY(monitorCard.modelData.name), monitorScale.value / 100) }
                                                         }
                                                     }
                                                 }
