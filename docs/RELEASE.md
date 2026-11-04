@@ -17,7 +17,8 @@
 - [x] Verify Omarchy palette parsing and read-only competing-renderer diagnostics.
 - [ ] Verify battery pause/resume and CPU/GPU use. H.264 video decoding and panoramic playback passed a short smoke test on DP-2 and HDMI-A-2; both players reported 3958 ms at the four-second sample.
 - [x] Test HTTP failures, redirects, media size limit, and corrupt media (automated local HTTP server and ffprobe checks).
-- [ ] Create a tagged release after integration checks. A cropped screenshot of the actual manager in the two-monitor smoke test is included.
+- [ ] Create a tagged release after integration checks.
+- [x] Refresh the public README screenshots for the current gallery and full-page theme picker.
 - [x] Publish the public GitHub repository: https://github.com/BraveHart911/wallpaper-pro.
 - [ ] Submit its URL at https://plugins.omarchy.org/publish.html.
 

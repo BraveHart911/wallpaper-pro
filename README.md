@@ -29,7 +29,9 @@ An Omarchy shell plugin for a personal image and live wallpaper collection.
 
 Multi-monitor videos use separate players and a shared playback timeline, checking for drift every 500 ms and seeking when drift exceeds 150 ms. Panoramic video is **experimental and not frame locked**; monitor seams may show timing differences. Web imports require a direct media URL with a supported file extension; YouTube, Steam Workshop, Wallpaper Engine projects, HTML pages, and provider galleries are not supported.
 
-![Wallpaper Pro starter library with single-monitor and dual-panorama wallpapers](docs/images/library.png)
+![Wallpaper Pro gallery with individual wallpapers, panoramic art, live videos, and color sorting](docs/images/library.png)
+
+![Wallpaper Pro full-page theme picker with color indicators and light/dark labels](docs/images/themes-appearance.png)
 
 ## Interface
 
