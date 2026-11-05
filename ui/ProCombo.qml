@@ -11,6 +11,7 @@ ComboBox {
     opacity: enabled ? 1 : 0.45
     contentItem: Text {
         text: control.displayText
+        textFormat: Text.PlainText
         font: control.font
         color: control.palette.text
         verticalAlignment: Text.AlignVCenter
@@ -32,9 +33,9 @@ ComboBox {
     delegate: ItemDelegate {
         required property var modelData
         required property int index
-        width: control.width
+        width: ListView.view ? ListView.view.width : control.availableWidth
         implicitHeight: 36
-        contentItem: Text { text: parent.modelData; color: control.palette.text; font: control.font; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
+        contentItem: Text { text: parent.modelData; textFormat: Text.PlainText; color: control.palette.text; font: control.font; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
         background: Rectangle { radius: 6; color: control.highlightedIndex === parent.index ? Qt.rgba(0.04,0.52,1,0.2) : "transparent" }
     }
     popup: Popup {

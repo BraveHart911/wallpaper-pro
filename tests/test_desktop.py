@@ -2,11 +2,41 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 from test_library import app
 
 
 class DesktopCompatibilityTests(unittest.TestCase):
+    def test_layout_edits_ignore_commented_monitor_rules(self):
+        commented = '-- hl.monitor({ output = "DP-1", mode = "preferred", position = "auto", scale = 1 })\n'
+        monitor = {'name': 'DP-1', 'availableModes': ['1920x1080@60.00Hz']}
+        rule = 'hl.monitor({ output = "DP-1", mode = "1920x1080@60.0", position = "-100x20", scale = 1.0 })'
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / 'hypr/monitors.lua'
+            config.parent.mkdir()
+            profiles = Path(directory) / 'wallpaper-pro/monitor-profiles.json'
+            profiles.parent.mkdir()
+            profiles.write_text(json.dumps([{'name': 'Desk', 'monitors': [
+                {'name': 'DP-1', 'mode': '1920x1080@60.0', 'x': -100, 'y': 20, 'scale': 1.0}
+            ]}]))
+            for command, args in (
+                (app.monitor_set, SimpleNamespace(name='DP-1', mode='1920x1080@60.0', x=-100, y=20, scale=1.0, brightness=None)),
+                (app.monitor_profile, SimpleNamespace(action='apply', name='Desk')),
+            ):
+                with self.subTest(command=command.__name__):
+                    config.write_text(commented)
+                    with patch.dict('os.environ', XDG_CONFIG_HOME=directory), patch.object(app.shutil, 'which', return_value='hyprctl'), patch.object(app.subprocess, 'run', side_effect=[
+                        subprocess.CompletedProcess([], 0, json.dumps([monitor])),
+                        subprocess.CompletedProcess([], 0, ''),
+                        subprocess.CompletedProcess([], 0, ''),
+                    ]), patch('builtins.print'):
+                        command(args)
+                    self.assertEqual(config.read_text().splitlines()[0], commented.rstrip())
+                    self.assertIn(rule, config.read_text().splitlines())
+
     def test_stock_background_and_bars_are_not_conflicts(self):
         monitor = {'name': 'DP-1', 'width': 3840, 'height': 2160, 'scale': 2}
         layers = {'DP-1': {'levels': {'0': [{'namespace': 'omarchy-background', 'w': 1920, 'h': 1080}],

@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """Manual Hyprland test using its own temporary fullscreen window; restores settings/focus."""
 import json
-import os
 from pathlib import Path
 import subprocess
 import tempfile
 import time
-from integration_session import app, status, wait_for
+from integration_session import app, restore_settings, save_test_settings, wait_for
 
 
 def query(name):
@@ -24,7 +23,7 @@ def main():
         state = app.with_starter_library(app.default())
         video = next(item for item in state['library'] if item['kind'] == 'video')
         state.update(enabled=True, mode='all', default=video['id'], pauseOnBattery=False, pauseOnFullscreen=True)
-        app.save(settings, state)
+        save_test_settings(settings, state)
         wait_for(lambda s: len(s['players']) == len(s['monitors']) and all(p['state'] == 1 for p in s['players']))
         with tempfile.TemporaryDirectory(prefix='wallpaper-pro-fullscreen-') as tmp:
             title = 'Wallpaper Pro compatibility ' + Path(tmp).name
@@ -60,13 +59,7 @@ def main():
         if process and process.poll() is None:
             process.terminate()
             process.wait(timeout=3)
-        if original is None:
-            settings.unlink(missing_ok=True)
-        else:
-            fd, temporary = tempfile.mkstemp(dir=config, prefix='.restore-')
-            with os.fdopen(fd, 'wb') as output:
-                output.write(original)
-            os.replace(temporary, settings)
+        restore_settings(settings, original)
         if original_focus:
             subprocess.run(['hyprctl', 'dispatch', 'focuswindow', 'address:' + original_focus], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         wait_for(lambda s: s['enabled'] == initial['enabled'] and s['mode'] == initial['mode'])

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Manual graphical-session check. Temporarily switches wallpapers, then restores settings."""
+from contextlib import contextmanager
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -7,6 +9,30 @@ import subprocess
 import tempfile
 import time
 from test_library import app
+
+
+@contextmanager
+def settings_lock(config):
+    config.mkdir(parents=True, exist_ok=True)
+    with (config / '.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def save_test_settings(settings, state):
+    with settings_lock(settings.parent):
+        app.save(settings, state)
+
+
+def restore_settings(settings, original):
+    with settings_lock(settings.parent):
+        if original is None:
+            settings.unlink(missing_ok=True)
+        else:
+            fd, temporary = tempfile.mkstemp(dir=settings.parent, prefix='.restore-')
+            with os.fdopen(fd, 'wb') as output:
+                output.write(original)
+            os.replace(temporary, settings)
 
 
 def status():
@@ -52,7 +78,7 @@ def main():
                          library=[{'id': 'image', 'kind': 'image', 'path': str(image), 'url': image.as_uri()},
                                   {'id': 'video', 'kind': 'video', 'path': str(video), 'url': video.as_uri()}],
                          assignments={monitors[0]: 'image', monitors[1]: 'video'})
-            app.save(settings, state)
+            save_test_settings(settings, state)
             independent = wait_for(lambda s: s['enabled'] and s['mode'] == 'individual'
                                    and len(s['players']) == 1 and s['players'][0]['monitor'] == monitors[1] and s['players'][0]['position'] > 300)
             assert independent['players'][0]['state'] == 1, independent
@@ -60,7 +86,7 @@ def main():
             print('PASS: independent image/video assignments on', ', '.join(monitors[:2]))
             for mode in ['all', 'span']:
                 state.update(mode=mode, default='video')
-                app.save(settings, state)
+                save_test_settings(settings, state)
                 playing = wait_for(lambda s: s['mode'] == mode and len(s['players']) == len(monitors) and all(p['position'] > 500 and p['state'] == 1 for p in s['players']))
                 assert all(not p['error'] for p in playing['players']), playing
                 print('PASS:', mode, 'video playback:', json.dumps(playing))
@@ -71,17 +97,11 @@ def main():
             assert max(positions) - min(positions) < 350, looped
             print('PASS: video continues beyond one loop with monitor drift under 350 ms')
             state.update(enabled=False)
-            app.save(settings, state)
+            save_test_settings(settings, state)
             wait_for(lambda s: not s['enabled'] and not s['players'])
             print('PASS: turning off stops video players')
     finally:
-        if original is None:
-            settings.unlink(missing_ok=True)
-        else:
-            fd, temporary = tempfile.mkstemp(dir=config, prefix='.restore-')
-            with os.fdopen(fd, 'wb') as output:
-                output.write(original)
-            os.replace(temporary, settings)
+        restore_settings(settings, original)
         wait_for(lambda s: s['enabled'] == initial['enabled'] and s['mode'] == initial['mode'])
         print('Restored original Wallpaper Pro settings')
 

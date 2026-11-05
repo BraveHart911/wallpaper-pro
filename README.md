@@ -2,12 +2,12 @@
 
 An Omarchy shell plugin for a personal image and live wallpaper collection.
 
-**Early development · 0.9.0-alpha.20.** This is a working foundation, not a marketplace release yet.
+**Development prerelease · 0.9.0-alpha.21**
 
 ## Current features
 
 - Browse 15 included wallpapers: six 1920 × 1080 images, six 3840 × 1080 panoramas, and three silent looping videos.
-- Filter by live wallpapers, single monitor, dual panorama, My imports, Favorites, or Themes, and search by wallpaper or theme name.
+- Browse live wallpapers, single-monitor images, panoramas, imports, favorites, or theme wallpapers. Search by wallpaper or theme name.
 - The All wallpapers view has a centered All / Single monitor / Dual panorama selector; Live wallpapers retains its All live / Dual monitor selector.
 - Favorite wallpapers from their cards and browse them in a persistent Favorites library using the same selected sort order as All wallpapers.
 - Automatically discover installed Omarchy theme wallpapers and generate their thumbnails.
@@ -43,7 +43,9 @@ Playback preferences and library removal are under the settings button. All file
 
 Omarchy with its Quickshell plugin system, Python 3, ffmpeg (including ffprobe), Qt Quick Controls, Qt Quick Dialogs, and Qt Multimedia with codecs for your videos. No swww, awww, or mpvpaper dependency. Codec availability varies by system.
 
-## Development install
+Hardware brightness also needs `ddcutil`, a DDC/CI-capable monitor with DDC/CI enabled, and user access to the display’s I²C device. Wallpaper Pro runs with your user permissions inside Omarchy Shell. The plugin installer clones and validates the repository. Install any missing dependencies separately.
+
+## Install
 
 From this checkout:
 
@@ -53,11 +55,11 @@ omarchy plugin validate .
 QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software /usr/lib/qt6/bin/qmltestrunner -input tests/qml -o -,txt
 ```
 
-Install this development version with `omarchy plugin add https://github.com/BraveHart911/wallpaper-pro` and enable `bravehart911.wallpaper-pro` from Omarchy's plugin settings. For a local test, copy this checkout into `~/.config/omarchy/plugins/bravehart911.wallpaper-pro`, rescan with `omarchy-shell shell rescanPlugins`, then enable with `omarchy plugin enable bravehart911.wallpaper-pro`. Do not copy over an existing plugin checkout.
+Install from GitHub with `omarchy plugin add https://github.com/BraveHart911/wallpaper-pro` and enable `bravehart911.wallpaper-pro` from Omarchy's plugin settings. For a local test, copy this checkout into `~/.config/omarchy/plugins/bravehart911.wallpaper-pro`, rescan with `omarchy-shell shell rescanPlugins`, then enable with `omarchy plugin enable bravehart911.wallpaper-pro`. Do not copy over an existing plugin checkout.
 
 Open Wallpaper Pro from its bar icon. Choose **+ Add wallpapers** to add files, a folder, or a web link. Select a library card, select the display mode and monitor, then choose **Apply wallpaper**. Choose **Use Omarchy wallpaper** to hand the desktop back to the existing background provider. Applying an individual assignment switches to individual mode; other saved individual assignments remain available.
 
-Wallpaper Pro adds click-through bottom-layer windows and does not rewrite Omarchy's theme, wallpaper, Hyprland startup, or other plugins' settings. Other live wallpaper plugins may compete for the same desktop layer; turn those off through their own controls while using Wallpaper Pro. Stock backgrounds remain underneath.
+Wallpaper Pro uses click-through bottom-layer windows for playback. The Themes & appearance and Monitor control pages apply system changes when you use their controls. Other live wallpaper plugins may compete for the same desktop layer; turn those off through their own controls while using Wallpaper Pro. Stock backgrounds remain underneath.
 
 The manager stays loaded when closed so wallpapers continue playing. Disabling the plugin removes its renderer; turning wallpapers off destroys its video players. Plugin updates may require `omarchy restart shell` to replace already loaded QML components.
 
@@ -69,7 +71,7 @@ Save the active arrangement as a named setup to restore it later, such as for a 
 
 ## Hyprland and Omarchy compatibility
 
-Wallpaper surfaces stay on the bottom layer, accept no keyboard focus, and have an empty input region so mouse actions pass through. They reserve no screen space and stay below application windows, bars, menus, and lock surfaces. Wallpaper Pro does not change Hyprland settings, startup commands, theme files, idle settings, or other plugins, and never kills other wallpaper processes.
+Wallpaper surfaces stay on the bottom layer, accept no keyboard focus, and have an empty input region so mouse actions pass through. They reserve no screen space and stay below application windows, bars, menus, and lock surfaces. Applying a layout in Monitor control writes to Omarchy’s `monitors.lua` and reloads Hyprland. Applying a theme or cycling its background uses Omarchy’s theme commands.
 
 The manager is a regular Wayland application window, so Hyprland controls its tiling, movement, resizing, workspace placement, and fullscreen state. Closing it with the window-manager shortcut keeps wallpapers running, and the bar icon reopens it. The gallery and controls adapt to narrower tiles.
 

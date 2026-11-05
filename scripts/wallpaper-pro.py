@@ -22,6 +22,7 @@ import time
 IMAGE = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.avif'}
 VIDEO = {'.mp4', '.webm', '.mkv', '.mov', '.m4v', '.gif'}
 MAX_BYTES = 512 * 1024 * 1024
+MONITOR_RULE = re.compile(r'^([ \t]*)hl\.monitor\(\s*\{([^{}]*)\}\s*\)', re.M)
 
 
 def directories():
@@ -857,11 +858,10 @@ def monitor_set(args):
         if not display:
             raise ValueError('Hardware brightness control is not available for ' + args.name)
     original = config.read_text()
-    call = re.compile(r'hl\.monitor\(\s*\{([^{}]*)\}\s*\)', re.S)
     found = False
     def update_monitor(match):
         nonlocal found
-        body = match.group(1)
+        indent, body = match.groups()
         output = re.search(r'output\s*=\s*["\']([^"\']*)["\']', body)
         if not output or output.group(1) != args.name:
             return match.group(0)
@@ -872,9 +872,9 @@ def monitor_set(args):
             if field_pattern.search(body):
                 body = field_pattern.sub(field + ' = ' + value, body, count=1)
             else:
-                body = body.rstrip() + ', ' + field + ' = ' + value
-        return 'hl.monitor({ ' + body.strip() + ' })'
-    updated = call.sub(update_monitor, original)
+                body = body.rstrip().removesuffix(',') + ', ' + field + ' = ' + value
+        return indent + 'hl.monitor({ ' + body.strip() + ' })'
+    updated = MONITOR_RULE.sub(update_monitor, original)
     if not found:
         updated = updated.rstrip() + '\n\nhl.monitor({ output = "' + args.name + '", mode = "' + args.mode + '", position = "' + str(args.x) + 'x' + str(args.y) + '", scale = ' + str(args.scale) + ' })\n'
     stamp = time.strftime('%Y%m%d-%H%M%S') + '-' + str(time.time_ns() % 1_000_000_000)
@@ -984,10 +984,9 @@ def monitor_profile(args):
     if not config.is_file():
         raise ValueError('Could not find ~/.config/hypr/monitors.lua')
     original = config.read_text()
-    calls = re.compile(r'hl\.monitor\(\s*\{([^{}]*)\}\s*\)', re.S)
     updated_names = set()
     def update_call(match):
-        body = match.group(1)
+        indent, body = match.groups()
         output = re.search(r'output\s*=\s*["\']([^"\']*)["\']', body)
         if not output:
             return match.group(0)
@@ -1002,9 +1001,9 @@ def monitor_profile(args):
             if field_pattern.search(body):
                 body = field_pattern.sub(field + ' = ' + value, body, count=1)
             else:
-                body = body.rstrip() + ', ' + field + ' = ' + value
-        return 'hl.monitor({ ' + body.strip() + ' })'
-    updated = calls.sub(update_call, original)
+                body = body.rstrip().removesuffix(',') + ', ' + field + ' = ' + value
+        return indent + 'hl.monitor({ ' + body.strip() + ' })'
+    updated = MONITOR_RULE.sub(update_call, original)
     for item in updates:
         if item['name'] not in updated_names:
             updated += '\n\nhl.monitor({ output = "' + item['name'] + '", mode = "' + item['mode'] + '", position = "' + str(int(item['x'])) + 'x' + str(int(item['y'])) + '", scale = ' + str(float(item['scale'])) + ' })'

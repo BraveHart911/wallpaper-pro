@@ -16,12 +16,14 @@ Item {
     property string compatibilityWarning: ""
     property string themeSyncMessage: ""
     property string themeSyncError: ""
+    property bool manualThemeSync: false
     property bool automaticThemeSync: true
     property bool libraryInitialized: false
     property bool refreshAfterThemeSync: false
     Component.onCompleted: if (automaticThemeSync) startThemeSync()
-    function startThemeSync() {
+    function startThemeSync(manual) {
         if (!themeSync.running) {
+            manualThemeSync = manual === true
             themeSyncError = ""
             themeSyncMessage = "Discovering Omarchy theme wallpapers…"
             themeSync.running = true
@@ -31,7 +33,7 @@ Item {
     Timer {
         interval: 100
         running: root.refreshAfterThemeSync && root.opened && !worker.running
-        onTriggered: { root.refreshAfterThemeSync = false; root.run(["status"]) }
+        onTriggered: { root.refreshAfterThemeSync = false; root.run(["status"], true) }
     }
     Process {
         id: themeSync
@@ -70,8 +72,6 @@ Item {
                     const catalog = JSON.parse(text)
                     root.currentThemeName = catalog.current
                     root.availableThemes = catalog.themes
-                    const current = catalog.themes.find(item => item.current)
-                    root.currentThemeMode = current ? current.mode : "unknown"
                 } catch (e) { root.operationError = "Could not read Omarchy's theme colors." }
             }
         }
@@ -149,13 +149,13 @@ Item {
         command: ["python3", root.script, "monitor-restore", root.monitorPendingBackup]
         stderr: StdioCollector { onStreamFinished: if (text.trim()) root.monitorError = text.trim() }
         onExited: function(code, status) {
-            root.monitorConfirmTimer.stop()
+            monitorConfirmTimer.stop()
             root.monitorConfirmSeconds = 0
             if (code === 0) {
                 root.monitorPendingBackup = ""
                 root.monitorError = ""
-                root.monitorMessage = "Previous monitor setup restored."
                 root.refreshMonitors()
+                root.monitorMessage = "Previous monitor setup restored."
             } else if (!root.monitorError) root.monitorError = "Could not restore the previous monitor setup."
         }
     }
@@ -217,11 +217,6 @@ Item {
         }
     }
     Process {
-        id: currentThemeProcess
-        command: ["omarchy", "theme", "current"]
-        stdout: StdioCollector { onStreamFinished: root.currentThemeName = text.trim() }
-    }
-    Process {
         id: currentBackgroundProcess
         command: ["omarchy", "theme", "bg", "current"]
         stdout: StdioCollector { onStreamFinished: root.currentBackground = text.trim() }
@@ -235,8 +230,6 @@ Item {
             if (code !== 0) root.operationError = "Could not apply " + root.pendingTheme + "."
             else {
                 root.currentThemeName = root.pendingTheme
-                const appliedTheme = root.availableThemes.find(item => item.name === root.pendingTheme)
-                root.currentThemeMode = appliedTheme ? appliedTheme.mode : "unknown"
                 root.currentBackground = ""
                 root.message = root.pendingTheme + " is now active. Refreshing wallpapers and colors…"
                 theme.refresh()
@@ -262,7 +255,7 @@ Item {
     property string appWindowTitle: "Wallpaper Pro"
     property var availableThemes: []
     property string currentThemeName: ""
-    property string currentThemeMode: "unknown"
+    readonly property string currentThemeMode: availableThemes.find(item => item.name === currentThemeName)?.mode || "unknown"
     property string currentBackground: ""
     property var monitors: []
     property var monitorPositions: ({})
@@ -271,6 +264,7 @@ Item {
     property var monitorArrangementBounds: ({minX: 0, maxX: 0, minY: 0, maxY: 0})
     property var monitorArgs: []
     property bool monitorApplying: false
+    readonly property bool monitorLayoutBusy: monitorApplying || (monitorProfileProcess.running && monitorProfileAction === "apply") || !!monitorPendingBackup
     property string monitorPendingBackup: ""
     property int monitorConfirmSeconds: 0
     property var monitorProfiles: []
@@ -305,7 +299,7 @@ Item {
     readonly property bool monitorPositionsDirty: monitors.some(item => Math.round(monitorPositionX(item.name)) !== Math.round(item.x) || Math.round(monitorPositionY(item.name)) !== Math.round(item.y))
     readonly property color surface: Qt.tint(theme.colors.background, Qt.rgba(0.5, 0.5, 0.5, 0.07))
     readonly property color divider: Qt.rgba(0.5, 0.5, 0.5, 0.15)
-    readonly property var sections: ["All wallpapers", "Live wallpapers", "Single monitor", "Dual panorama", "My imports", "Favorites", "Theme wallpapers"]
+    readonly property var sections: ["All wallpapers", "Live wallpapers", "Single monitor", "Dual panorama", "My imports", "Favorites", "Theme wallpapers", "Themes & appearance", "Monitor control"]
     readonly property var sidebarSections: [
         {label: sections[5], index: 5, icon: "favorite"},
         {label: sections[0], index: 0, icon: "library"},
@@ -321,14 +315,14 @@ Item {
         return title.charAt(0).toUpperCase() + title.slice(1)
     }
     function mediaSubtitle(media) { return media ? (media.contextGroup ? media.contextGroup + " · " : "") + (media.themes && media.themes.length ? media.themes[0] + " · " : "") + (media.layout === "panoramic" ? "Dual panorama" : "Single monitor") + (media.width ? " · " + media.width + " × " + media.height : "") : "Select a preview from your collection" }
-    property var state: ({library: []})
+    property var libraryState: ({library: []})
     property string selected: ""
     property int librarySection: 0
     property int allLayoutFilter: 0
     property bool liveDualOnly: false
     property string searchQuery: ""
-    readonly property string sortOrder: state.sortOrder || "original"
-    readonly property var favoriteIds: state.favorites || []
+    readonly property string sortOrder: libraryState.sortOrder || "original"
+    readonly property var favoriteIds: libraryState.favorites || []
     readonly property var sortKeys: ["original", "name", "color"]
     readonly property var filteredThemes: availableThemes.filter(item => (item.name + " " + item.group).toLowerCase().indexOf(themeSearch.trim().toLowerCase()) !== -1)
     function matchesSearch(item) {
@@ -339,13 +333,13 @@ Item {
     }
     onLibrarySectionChanged: { selected = ""; stopPreview(previewId) }
     onLiveDualOnlyChanged: stopPreview(previewId)
-    readonly property var filteredLibrary: Library.ordered((state.library || []).filter(item => {
+    readonly property var filteredLibrary: Library.ordered((libraryState.library || []).filter(item => {
         const layout = item.layout || ((item.width || 0) / (item.height || 1) >= 2.7 ? "panoramic" : "single")
         const matchesAllLayout = allLayoutFilter === 0 || (allLayoutFilter === 1 && layout === "single") || (allLayoutFilter === 2 && layout === "panoramic")
         const matchesSection = (librarySection === 0 && matchesAllLayout) || (librarySection === 1 && item.kind === "video" && (!liveDualOnly || layout === "panoramic")) || (librarySection === 2 && layout === "single") || (librarySection === 3 && layout === "panoramic") || (librarySection === 4 && !item.bundled && !item.themeManaged) || (librarySection === 5 && favoriteIds.indexOf(item.id) !== -1) || (librarySection === 6 && (item.themes || []).length > 0)
         return matchesSection && matchesSearch(item)
-    }), sortOrder, state.contextEnabled === true)
-    readonly property var selectedMedia: (state.library || []).find(item => item.id === selected) || null
+    }), sortOrder, libraryState.contextEnabled === true)
+    readonly property var selectedMedia: (libraryState.library || []).find(item => item.id === selected) || null
     function selectMedia(item) {
         selected = item.id
         mode.currentIndex = item.layout === "panoramic" ? 2 : 0
@@ -376,16 +370,19 @@ Item {
     }
     readonly property string playbackErrors: rendererService.players.map(player => player.errorString ? player.monitorName + ": " + player.errorString : "").filter(text => text !== "").join(" · ")
     property string pendingCommand: ""
+    property bool backgroundRefresh: false
     property string folderErrors: ""
     property string operationError: ""
     property string message: "Add an image or video to get started."
     readonly property string script: decodeURIComponent(Qt.resolvedUrl("scripts/wallpaper-pro.py").toString().replace(/^file:\/\//, ""))
-    onStateChanged: {
-        if (!libraryInitialized || ["apply", "off", "unassign"].indexOf(pendingCommand) !== -1)
-            mode.currentIndex = Math.max(0, ["individual", "all", "span"].indexOf(state.mode || "individual"))
+    onLibraryStateChanged: Qt.callLater(root.updateLibrarySelection)
+
+    function updateLibrarySelection() {
+        if (!libraryInitialized || (!backgroundRefresh && ["apply", "off", "unassign"].indexOf(pendingCommand) !== -1))
+            mode.currentIndex = Math.max(0, ["individual", "all", "span"].indexOf(libraryState.mode || "individual"))
         libraryInitialized = true
-        if (!(state.library || []).some(item => item.id === selected)) {
-            const preferred = filteredLibrary.find(item => item.id === state.default) || filteredLibrary[0]
+        if (!(libraryState.library || []).some(item => item.id === selected)) {
+            const preferred = filteredLibrary.find(item => item.id === libraryState.default) || filteredLibrary[0]
             selected = preferred ? preferred.id : ""
         }
     }
@@ -401,8 +398,7 @@ Item {
         run(["status"])
     }
     function refreshThemeControls() {
-        if (!themeListProcess.running) themeListProcess.running = true
-        if (!currentThemeProcess.running) currentThemeProcess.running = true
+        if (!themeApplying && !themeListProcess.running) themeListProcess.running = true
         if (!currentBackgroundProcess.running) currentBackgroundProcess.running = true
     }
     function refreshMonitors() {
@@ -427,7 +423,7 @@ Item {
         if (monitorPendingBackup && !monitorRestoreProcess.running) monitorRestoreProcess.running = true
     }
     function runMonitorProfile(action, name) {
-        if (monitorProfileProcess.running || monitorPendingBackup) return
+        if (monitorProfileProcess.running || monitorLayoutBusy) return
         monitorError = ""
         monitorMessage = ""
         monitorProfileAction = action
@@ -463,7 +459,7 @@ Item {
         monitorMapBounds = {minX: minX - 180, minY: minY - 140, maxX: maxX + 180, maxY: maxY + 140}
     }
     function applyMonitor(name, modeValue, x, y, scale) {
-        if (monitorApplying || monitorPendingBackup) return
+        if (monitorLayoutBusy) return
         monitorError = ""
         monitorMessage = ""
         monitorArgs = [name, "--mode", modeValue, "--x", String(x), "--y", String(y), "--scale", String(scale)]
@@ -498,7 +494,7 @@ Item {
         monitorBrightnessProcess.running = true
     }
     function applyTheme(name) {
-        if (themeApplying || !name) return
+        if (themeApplying || themeListProcess.running || !name || name === currentThemeName) return
         pendingTheme = name
         operationError = ""
         themeApplying = true
@@ -516,15 +512,15 @@ Item {
         if (shell && typeof shell.hide === "function") shell.hide("bravehart911.wallpaper-pro")
     }
     function assignment(name) {
-        if (!state.enabled) return "Omarchy wallpaper"
-        const id = state.mode === "individual" ? (state.assignments || {})[name] : state.default
-        const media = (state.library || []).find(item => item.id === id)
+        if (!libraryState.enabled) return "Omarchy wallpaper"
+        const id = libraryState.mode === "individual" ? (libraryState.assignments || {})[name] : libraryState.default
+        const media = (libraryState.library || []).find(item => item.id === id)
         return media ? displayName(media) : "Omarchy wallpaper"
     }
     function monitorMedia(name) {
-        const library = state.library || []
-        if (state.enabled) {
-            const id = state.mode === "individual" ? (state.assignments || {})[name] : state.default
+        const library = libraryState.library || []
+        if (libraryState.enabled) {
+            const id = libraryState.mode === "individual" ? (libraryState.assignments || {})[name] : libraryState.default
             return library.find(item => item.id === id) || null
         }
         const background = String(currentBackground || "").trim().toLowerCase().replace(/\s+/g, " ")
@@ -532,18 +528,21 @@ Item {
     }
     function monitorWallpaperName(name) {
         const media = monitorMedia(name)
-        return media ? (media.kind === "video" ? "LIVE · " : "") + displayName(media) : (!state.enabled && currentBackground ? "Theme · " + currentBackground : "Omarchy wallpaper")
+        return media ? (media.kind === "video" ? "LIVE · " : "") + displayName(media) : (!libraryState.enabled && currentBackground ? "Theme · " + currentBackground : "Omarchy wallpaper")
     }
     function monitorWallpaperSource(name) {
         const media = monitorMedia(name)
         return media ? media.thumbnailUrl || (media.kind === "image" ? media.url : "") : ""
     }
-    function run(args) {
+    function run(args, background) {
         if (worker.running) return
-        pendingCommand = args[0]
-        folderErrors = ""
-        operationError = ""
-        message = pendingCommand === "import-folder" ? "Scanning folder and subfolders…" : "Working…"
+        backgroundRefresh = background === true
+        if (!backgroundRefresh) {
+            pendingCommand = args[0]
+            folderErrors = ""
+            operationError = ""
+            message = pendingCommand === "import-folder" ? "Scanning folder and subfolders…" : "Working…"
+        }
         worker.command = ["python3", script].concat(args)
         worker.running = true
     }
@@ -553,6 +552,16 @@ Item {
             onRead: function(line) {
                 try {
                     const result = JSON.parse(line)
+                    if (root.backgroundRefresh) {
+                        if (JSON.stringify(result) !== JSON.stringify(root.libraryState)) {
+                            const scrollOffset = gallery.contentY - gallery.originY
+                            root.libraryState = result
+                            gallery.forceLayout()
+                            const maxOffset = Math.max(0, gallery.contentHeight - gallery.height)
+                            gallery.contentY = gallery.originY + Math.max(0, Math.min(scrollOffset, maxOffset))
+                        }
+                        return
+                    }
                     if (result.event === "setup-progress" || result.event === "context-progress") {
                         root.message = result.message || "Preparing local visual analysis…"
                         return
@@ -563,21 +572,28 @@ Item {
                         return
                     }
                     if (root.pendingCommand === "favorite" && root.librarySection === 5 && (result.favorites || []).indexOf(root.selected) === -1) root.selected = ""
-                    root.state = result
+                    root.libraryState = result
                     if (root.pendingCommand === "import-folder" && result.lastFolderImport) {
                         const report = result.lastFolderImport
                         root.message = "Folder imported · " + report.added + " added · " + report.duplicates + " duplicates · " + report.failed + " failed · " + report.skipped + " unsupported files skipped"
                         root.folderErrors = report.errors.slice(0, 3).map(error => error.file + ": " + error.error).join("\n")
                     } else {
-                        root.message = "Library ready · " + root.state.library.length + " wallpapers"
+                        root.message = "Library ready · " + root.libraryState.library.length + " wallpapers"
                     }
-                } catch (e) { root.operationError = "Could not read the library response." }
+                } catch (e) {
+                    if (root.backgroundRefresh) root.themeSyncError = "Could not read the refreshed theme library."
+                    else root.operationError = "Could not read the library response."
+                }
             }
         }
-        stderr: StdioCollector { onStreamFinished: { if (text.trim()) root.operationError = text.trim() } }
+        stderr: StdioCollector { onStreamFinished: { if (text.trim() && !root.backgroundRefresh) root.operationError = text.trim() } }
         onExited: function(code, status) {
+            if (root.backgroundRefresh) {
+                if (code !== 0) root.themeSyncError = "The theme library was scanned, but the gallery could not refresh."
+                return
+            }
             if (code !== 0 && !root.operationError) root.operationError = "Operation failed (" + code + ")"
-            if (code === 0 && root.state.contextEnabled && ["import", "import-folder", "thumbnails", "install-context", "context"].indexOf(root.pendingCommand) !== -1) root.startThemeSync()
+            if (code === 0 && root.libraryState.contextEnabled && ["import", "import-folder", "thumbnails", "install-context", "context"].indexOf(root.pendingCommand) !== -1) root.startThemeSync()
         }
     }
     FileDialog {
@@ -671,7 +687,7 @@ Item {
                                     onClicked: root.librarySection = modelData.index
                                 }
                             }
-                            Rectangle { Layout.fillWidth: true; Layout.topMargin: 6; Layout.bottomMargin: 2; height: 1; color: root.divider }
+                            Rectangle { Layout.fillWidth: true; Layout.topMargin: 6; Layout.bottomMargin: 2; implicitHeight: 1; color: root.divider }
                             Label { text: "THEME CONTROLS"; color: theme.secondary; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.2; Layout.leftMargin: 12; Layout.bottomMargin: 2 }
                             ProButton {
                                 Layout.fillWidth: true
@@ -709,10 +725,10 @@ Item {
                                         anchors.margins: 12
                                         spacing: 5
                                         RowLayout {
-                                            Rectangle { width: 18; height: 12; radius: 2; color: "transparent"; border.color: theme.secondary; border.width: 1 }
+                                            Rectangle { implicitWidth: 18; implicitHeight: 12; radius: 2; color: "transparent"; border.color: theme.secondary; border.width: 1 }
                                             Label { text: displayCard.modelData.name; font.pixelSize: 12; font.weight: Font.Medium; color: theme.colors.foreground }
                                             Item { Layout.fillWidth: true }
-                                            Rectangle { width: 5; height: 5; radius: 3; color: "#30c783" }
+                                            Rectangle { implicitWidth: 5; implicitHeight: 5; radius: 3; color: "#30c783" }
                                         }
                                         Label { text: root.assignment(displayCard.modelData.name); font.pixelSize: 11; color: theme.secondary; elide: Text.ElideRight; Layout.fillWidth: true }
                                     }
@@ -735,7 +751,7 @@ Item {
                                     Layout.preferredWidth: 220
                                     spacing: 7
                                     Label { text: root.librarySection === 0 ? "Your collection" : root.sections[root.librarySection]; font.pixelSize: 27; font.weight: Font.DemiBold; color: theme.colors.foreground; Layout.fillWidth: true; elide: Text.ElideRight }
-                                    Label { text: root.filteredLibrary.length + " wallpapers. A fresh perspective for every screen."; font.pixelSize: 12; color: theme.secondary; Layout.fillWidth: true; elide: Text.ElideRight }
+                                    Label { text: root.filteredLibrary.length + (root.filteredLibrary.length === 1 ? " wallpaper" : " wallpapers"); font.pixelSize: 12; color: theme.secondary; Layout.fillWidth: true; elide: Text.ElideRight }
                                 }
                                 Item { Layout.fillWidth: true }
                                 ProSegmented {
@@ -754,7 +770,7 @@ Item {
                                 Item { Layout.fillWidth: true }
                                 ProCombo {
                                     Layout.preferredWidth: 150
-                                    model: ["Sort: original", "Sort: name", root.state.contextEnabled ? "Color + context" : "Sort: color"]
+                                    model: ["Sort: original", "Sort: name", root.libraryState.contextEnabled ? "Color + context" : "Sort: color"]
                                     currentIndex: Math.max(0, root.sortKeys.indexOf(root.sortOrder))
                                     enabled: !worker.running
                                     onActivated: root.run(["sort", root.sortKeys[currentIndex]])
@@ -762,11 +778,10 @@ Item {
                                 }
                             }
                             RowLayout {
-                                visible: root.compact && root.librarySection !== 7
+                                visible: root.compact
                                 Layout.fillWidth: true
-                                ProCombo { Layout.fillWidth: true; model: root.sections.concat(["Themes & appearance", "Monitor control"]); currentIndex: root.librarySection; onActivated: { root.librarySection = currentIndex; if (currentIndex === 7) root.refreshThemeControls(); if (currentIndex === 8) root.refreshMonitors() } }
-                                ProField { visible: root.librarySection !== 8; Layout.fillWidth: true; placeholderText: "Search"; text: root.searchQuery
-                            onTextEdited: root.searchQuery = text }
+                                ProCombo { Layout.fillWidth: true; model: root.sections; Accessible.name: "Wallpaper category"; currentIndex: root.librarySection; onActivated: { root.librarySection = currentIndex; if (currentIndex === 7) root.refreshThemeControls(); if (currentIndex === 8) root.refreshMonitors() } }
+                                ProField { visible: root.librarySection < 7; Layout.fillWidth: true; placeholderText: "Search wallpapers"; text: root.searchQuery; onTextEdited: root.searchQuery = text }
                             }
                             RowLayout {
                                 visible: (root.librarySection === 0 || root.librarySection === 1) && !root.inlineLiveSelector
@@ -786,7 +801,9 @@ Item {
                                 }
                             }
                             Rectangle {
-                                visible: root.operationError !== "" || !!root.state.contextError || root.themeSyncError !== "" || themeSync.running || worker.running || root.folderErrors !== "" || root.playbackErrors !== "" || root.compatibilityWarning !== "" || root.pendingCommand === "import-folder"
+                                readonly property bool foregroundWork: worker.running && !root.backgroundRefresh
+                                readonly property bool showThemeProgress: themeSync.running && root.manualThemeSync
+                                visible: root.operationError !== "" || !!root.libraryState.contextError || root.themeSyncError !== "" || showThemeProgress || foregroundWork || root.folderErrors !== "" || root.playbackErrors !== "" || root.compatibilityWarning !== "" || root.pendingCommand === "import-folder"
                                 Layout.fillWidth: true
                                 implicitHeight: notice.implicitHeight + 24
                                 radius: 10
@@ -795,7 +812,7 @@ Item {
                                     id: notice
                                     anchors.fill: parent
                                     anchors.margins: 12
-                                    text: root.operationError || root.state.contextError || root.folderErrors || root.playbackErrors || root.compatibilityWarning || root.themeSyncError || (themeSync.running && !worker.running ? root.themeSyncMessage : root.message)
+                                    text: root.operationError || root.libraryState.contextError || root.folderErrors || root.playbackErrors || root.compatibilityWarning || root.themeSyncError || (parent.showThemeProgress && !parent.foregroundWork ? root.themeSyncMessage : root.message)
                                     color: root.operationError || root.folderErrors || root.playbackErrors ? theme.colors.red : theme.secondary
                                     wrapMode: Text.Wrap
                                     maximumLineCount: 3
@@ -924,12 +941,47 @@ Item {
                                                     onClicked: root.run(["favorite", card.modelData.id, card.favorite ? "off" : "on"])
                                                 }
                                             }
-                                            ToolTip.visible: cardMouse.containsMouse
-                                            ToolTip.delay: 700
-                                            ToolTip.text: card.modelData.name + (card.modelData.contextGroup ? " · Suggested subject: " + card.modelData.contextGroup + (card.modelData.contextUncertain ? " (uncertain)" : "") : "") + (card.modelData.colorName ? " · " + card.modelData.colorName : "")
+                                            ToolTip {
+                                                parent: card
+                                                visible: cardMouse.containsMouse
+                                                delay: 700
+                                                width: Math.min(280, implicitWidth)
+                                                x: (card.width - width) / 2
+                                                horizontalPadding: 12
+                                                verticalPadding: 8
+                                                background: Rectangle {
+                                                    radius: 9
+                                                    color: Qt.tint(theme.colors.background, Qt.rgba(0.5, 0.5, 0.5, 0.13))
+                                                    border.color: Qt.rgba(0.5, 0.5, 0.5, 0.32)
+                                                }
+                                                contentItem: ColumnLayout {
+                                                    spacing: 3
+                                                    Label {
+                                                        Layout.fillWidth: true
+                                                        text: root.displayName(card.modelData)
+                                                        textFormat: Text.PlainText
+                                                        font.pixelSize: 12
+                                                        font.weight: Font.DemiBold
+                                                        color: theme.colors.foreground
+                                                        elide: Text.ElideRight
+                                                    }
+                                                    Label {
+                                                        Layout.fillWidth: true
+                                                        visible: text !== ""
+                                                        text: [
+                                                            card.modelData.contextGroup ? card.modelData.contextGroup + (card.modelData.contextUncertain ? " (uncertain)" : "") : "",
+                                                            card.modelData.colorName
+                                                        ].filter(Boolean).join(" · ")
+                                                        textFormat: Text.PlainText
+                                                        font.pixelSize: 11
+                                                        color: theme.secondary
+                                                        elide: Text.ElideRight
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
-                                    Label { anchors.centerIn: parent; visible: !root.filteredLibrary.length; text: root.librarySection === 1 && root.liveDualOnly ? "No dual-monitor live wallpapers found.\nTurn off the filter to see all live wallpapers." : root.librarySection === 5 ? "No favorites yet.\nTap the heart on a wallpaper to save it here." : "No wallpapers here yet.\nAdd a file, folder, or web link to get started."; color: theme.secondary; horizontalAlignment: Text.AlignHCenter; lineHeight: 1.6; font.pixelSize: 13 }
+                                    Label { anchors.centerIn: parent; visible: !root.filteredLibrary.length; text: root.librarySection === 1 && root.liveDualOnly ? "No dual-monitor live wallpapers found.\nTurn off the filter to see all live wallpapers." : root.librarySection === 5 ? "No favorites yet.\nClick the heart on a wallpaper to save it here." : "No wallpapers here yet.\nAdd a file, folder, or web link to get started."; color: theme.secondary; width: Math.max(0, gallery.width - 24); wrapMode: Text.WordWrap; horizontalAlignment: Text.AlignHCenter; lineHeight: 1.6; font.pixelSize: 13 }
                                 }
                             }
                                 ColorRail {
@@ -966,7 +1018,7 @@ Item {
                                             Label { text: "Themes & appearance"; color: theme.colors.foreground; font.pixelSize: 27; font.weight: Font.DemiBold }
                                             Label { text: root.currentThemeName ? "Current theme · " + root.currentThemeName + " · " + (root.currentThemeMode === "unknown" ? "Mode unknown" : root.currentThemeMode.charAt(0).toUpperCase() + root.currentThemeMode.slice(1) + " mode") : "Choose an Omarchy theme"; color: theme.secondary; font.pixelSize: 12 }
                                         }
-                                        ProButton { text: "Refresh list"; quiet: true; onClicked: root.refreshThemeControls() }
+                                        ProButton { text: "Refresh list"; quiet: true; enabled: !root.themeApplying && !themeListProcess.running; onClicked: root.refreshThemeControls() }
                                     }
                                     Rectangle {
                                         Layout.fillWidth: true
@@ -982,7 +1034,7 @@ Item {
                                                 Layout.fillWidth: true
                                                 spacing: 4
                                                 Label { text: "Desktop background"; color: theme.colors.foreground; font.pixelSize: 13; font.weight: Font.DemiBold }
-                                                Label { text: root.currentBackground || "Loading current background…"; color: theme.secondary; font.pixelSize: 11; elide: Text.ElideMiddle; Layout.fillWidth: true }
+                                                Label { text: root.currentBackground || (currentBackgroundProcess.running ? "Reading current background…" : "Current background unavailable"); color: theme.secondary; font.pixelSize: 11; elide: Text.ElideMiddle; Layout.fillWidth: true }
                                             }
                                             ProButton { text: "Next background"; quiet: true; enabled: !nextBackgroundProcess.running; onClicked: root.nextThemeBackground() }
                                         }
@@ -990,7 +1042,7 @@ Item {
                                     RowLayout {
                                         Layout.fillWidth: true
                                         ProField { Layout.fillWidth: true; placeholderText: "Search installed themes"; text: root.themeSearch; onTextEdited: root.themeSearch = text }
-                                        Label { text: root.filteredThemes.length + " themes"; color: theme.secondary; font.pixelSize: 11 }
+                                        Label { text: root.filteredThemes.length + (root.filteredThemes.length === 1 ? " theme" : " themes"); color: theme.secondary; font.pixelSize: 11 }
                                     }
                                     ScrollView {
                                         Layout.fillWidth: true
@@ -1005,23 +1057,24 @@ Item {
                                             delegate: Item {
                                                 id: themeCard
                                                 required property var modelData
+                                                readonly property bool isCurrent: modelData.name === root.currentThemeName
                                                 width: themeGrid.cellWidth - 12
                                                 height: themeGrid.cellHeight - 12
                                                 Rectangle {
                                                     anchors.fill: parent
                                                     radius: 12
-                                                    color: themeCard.modelData.current ? Qt.tint(root.surface, Qt.rgba(0.04,0.52,1,0.16)) : root.surface
-                                                    border.width: themeCard.modelData.current ? 2 : 1
-                                                    border.color: themeCard.modelData.current ? themeCard.modelData.accent : root.divider
+                                                    color: themeCard.isCurrent ? Qt.tint(root.surface, Qt.rgba(0.04,0.52,1,0.16)) : root.surface
+                                                    border.width: themeCard.isCurrent ? 2 : 1
+                                                    border.color: themeCard.isCurrent ? themeCard.modelData.accent : root.divider
                                                     RowLayout {
                                                         anchors.fill: parent
                                                         anchors.margins: 13
                                                         spacing: 9
                                                         Rectangle {
-                                                            width: 34; height: 34; radius: 10
+                                                            implicitWidth: 34; implicitHeight: 34; radius: 10
                                                             color: themeCard.modelData.accent
                                                             border.color: Qt.rgba(0,0,0,.22)
-                                                            Text { anchors.centerIn: parent; text: themeCard.modelData.current ? "✓" : ""; color: "white"; font.pixelSize: 15; font.weight: Font.Bold }
+                                                            Text { anchors.centerIn: parent; text: themeCard.isCurrent ? "✓" : ""; color: "white"; font.pixelSize: 15; font.weight: Font.Bold }
                                                         }
                                                         ColumnLayout {
                                                             Layout.fillWidth: true
@@ -1040,15 +1093,15 @@ Item {
                                                             }
                                                         }
                                                         ProButton {
-                                                            text: themeCard.modelData.current ? "Current" : "Apply"
-                                                            quiet: themeCard.modelData.current
-                                                            enabled: !root.themeApplying && !themeCard.modelData.current
+                                                            text: themeCard.isCurrent ? "Current" : "Apply"
+                                                            quiet: themeCard.isCurrent
+                                                            enabled: !root.themeApplying && !themeListProcess.running && !themeCard.isCurrent
                                                             onClicked: root.applyTheme(themeCard.modelData.name)
                                                         }
                                                     }
                                                 }
                                             }
-                                            Label { anchors.centerIn: parent; visible: root.filteredThemes.length === 0; text: root.themeSearch ? "No matching themes." : "Loading installed themes…"; color: theme.secondary }
+                                            Label { anchors.centerIn: parent; visible: root.filteredThemes.length === 0; text: themeListProcess.running ? "Reading installed themes…" : root.themeSearch.trim() ? "No matching themes." : "No installed themes found."; color: theme.secondary }
                                         }
                                     }
                                 }
@@ -1129,7 +1182,7 @@ Item {
                                                             background: Rectangle { radius: 9; color: root.surface; border.color: profileNameField.activeFocus ? (theme.colors.accent || "#0a84ff") : root.divider }
                                                             Accessible.name: "Name for saved monitor setup"
                                                         }
-                                                        ProButton { text: "Save current"; primary: true; enabled: !monitorProfileProcess.running && !!profileNameField.text.trim() && root.monitors.length > 0; onClicked: root.runMonitorProfile("save", profileNameField.text.trim()) }
+                                                        ProButton { text: "Save current"; primary: true; enabled: !root.monitorLayoutBusy && !monitorProfileProcess.running && !!profileNameField.text.trim() && root.monitors.length > 0; onClicked: root.runMonitorProfile("save", profileNameField.text.trim()) }
                                                         ProCombo {
                                                             id: savedProfileCombo
                                                             Layout.fillWidth: true
@@ -1140,8 +1193,8 @@ Item {
                                                         }
                                                         RowLayout {
                                                             Layout.fillWidth: true
-                                                        ProButton { text: "Apply setup"; primary: true; enabled: !monitorProfileProcess.running && !root.monitorPendingBackup && root.monitorProfiles.length > 0 && !!root.monitorSelectedProfile; onClicked: root.runMonitorProfile("apply", root.monitorSelectedProfile) }
-                                                            ProButton { text: "Remove"; quiet: true; enabled: !monitorProfileProcess.running && root.monitorProfiles.length > 0 && !!root.monitorSelectedProfile; onClicked: root.runMonitorProfile("delete", root.monitorSelectedProfile) }
+                                                            ProButton { text: "Apply setup"; primary: true; enabled: !root.monitorLayoutBusy && !monitorProfileProcess.running && !!root.monitorSelectedProfile; onClicked: root.runMonitorProfile("apply", root.monitorSelectedProfile) }
+                                                            ProButton { text: "Remove"; quiet: true; enabled: !root.monitorLayoutBusy && !monitorProfileProcess.running && !!root.monitorSelectedProfile; onClicked: root.runMonitorProfile("delete", root.monitorSelectedProfile) }
                                                         }
                                                     }
                                                 }
@@ -1181,7 +1234,7 @@ Item {
                                                             readonly property real layoutWidth: Math.max(1, root.monitorArrangementBounds.maxX - root.monitorArrangementBounds.minX) * monitorMap.mapScale
                                                             readonly property real layoutHeight: Math.max(1, root.monitorArrangementBounds.maxY - root.monitorArrangementBounds.minY) * monitorMap.mapScale
                                                             readonly property real mediaAspect: media && media.width && media.height ? media.width / media.height : 1
-                                                            visible: root.state.enabled && root.state.mode === "span" && !!media
+                                                            visible: !!root.libraryState.enabled && root.libraryState.mode === "span" && !!media
                                                             source: visible ? root.monitorWallpaperSource(root.monitors[0].name) : ""
                                                             x: monitorMap.mapOffsetX + (root.monitorArrangementBounds.minX - root.monitorMapBounds.minX) * monitorMap.mapScale + (layoutWidth - width) / 2
                                                             y: monitorMap.mapOffsetY + (root.monitorArrangementBounds.minY - root.monitorMapBounds.minY) * monitorMap.mapScale + (layoutHeight - height) / 2
@@ -1203,13 +1256,13 @@ Item {
                                                                 height: modelData.height / Math.max(0.5, modelData.scale || 1) * monitorMap.mapScale
                                                                 radius: 9
                                                                 clip: true
-                                                                color: root.state.enabled && root.state.mode === "span" ? "transparent" : Qt.tint(root.surface, Qt.rgba(0.04,0.52,1,0.24))
+                                                                color: root.libraryState.enabled && root.libraryState.mode === "span" ? "transparent" : Qt.tint(root.surface, Qt.rgba(0.04,0.52,1,0.24))
                                                                 border.width: root.monitorSelectedName === modelData.name ? 3 : modelData.focused ? 2 : 1
                                                                 border.color: root.monitorSelectedName === modelData.name ? (theme.colors.accent || "#0a84ff") : modelData.focused ? Qt.rgba(0.4,0.65,0.9,0.85) : Qt.rgba(0.4,0.65,0.9,0.5)
                                                                 Image {
                                                                     anchors.fill: parent
                                                                     anchors.margins: 1
-                                                                    visible: root.state.mode !== "span" && status === Image.Ready
+                                                                    visible: root.libraryState.mode !== "span" && status === Image.Ready
                                                                     source: root.monitorWallpaperSource(mapMonitor.modelData.name)
                                                                     fillMode: Image.PreserveAspectCrop
                                                                     asynchronous: true
@@ -1225,7 +1278,7 @@ Item {
                                                                     width: Math.max(70, parent.width - 16)
                                                                     spacing: 4
                                                                     Label { anchors.horizontalCenter: parent.horizontalCenter; text: mapMonitor.modelData.name; color: theme.colors.foreground; font.pixelSize: 13; font.weight: Font.DemiBold }
-                                                                    Label { anchors.horizontalCenter: parent.horizontalCenter; text: Math.round(root.monitorPositionX(mapMonitor.modelData.name)) + " × " + Math.round(root.monitorPositionY(mapMonitor.modelData.name)); color: theme.secondary; font.pixelSize: 10 }
+                                                                    Label { anchors.horizontalCenter: parent.horizontalCenter; text: Math.round(root.monitorPositionX(mapMonitor.modelData.name)) + ", " + Math.round(root.monitorPositionY(mapMonitor.modelData.name)); color: theme.secondary; font.pixelSize: 10 }
                                                                     Label { anchors.horizontalCenter: parent.horizontalCenter; width: parent.width; text: root.monitorWallpaperName(mapMonitor.modelData.name); color: theme.colors.foreground; font.pixelSize: 10; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight; maximumLineCount: 1 }
                                                                 }
                                                                 Accessible.name: mapMonitor.modelData.name + " at " + root.monitorPositionX(mapMonitor.modelData.name) + " by " + root.monitorPositionY(mapMonitor.modelData.name) + ", showing " + root.monitorWallpaperName(mapMonitor.modelData.name)
@@ -1293,7 +1346,7 @@ Item {
                                                             Label { text: "SERIAL"; color: theme.secondary; font.pixelSize: 9; font.letterSpacing: 1 }
                                                             Label { text: monitorCard.modelData.serial || "Not reported"; color: theme.colors.foreground; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
                                                             Label { text: "POSITION"; color: theme.secondary; font.pixelSize: 9; font.letterSpacing: 1 }
-                                                            Label { text: Math.round(root.monitorPositionX(monitorCard.modelData.name)) + " × " + Math.round(root.monitorPositionY(monitorCard.modelData.name)) + " logical px"; color: theme.colors.foreground; font.pixelSize: 11 }
+                                                            Label { text: Math.round(root.monitorPositionX(monitorCard.modelData.name)) + ", " + Math.round(root.monitorPositionY(monitorCard.modelData.name)) + " logical px"; color: theme.colors.foreground; font.pixelSize: 11 }
                                                             Label { text: "SCALE / TRANSFORM"; color: theme.secondary; font.pixelSize: 9; font.letterSpacing: 1 }
                                                             Label { text: monitorCard.modelData.scale + "×  ·  " + (monitorCard.modelData.transform || "normal"); color: theme.colors.foreground; font.pixelSize: 11 }
                                                             Label { text: "PHYSICAL SIZE"; color: theme.secondary; font.pixelSize: 9; font.letterSpacing: 1 }
@@ -1348,13 +1401,13 @@ Item {
                                                                     }
                                                                     Label { text: root.monitorBrightnessApplying && root.monitorBrightnessTarget === monitorCard.modelData.name ? "…" : Math.round(monitorBrightness.value) + "%"; color: theme.secondary; font.pixelSize: 11; Layout.preferredWidth: 34 }
                                                                 }
-                                                                Label { visible: !monitorCard.modelData.brightness.available; text: "Hardware brightness unavailable · use this display’s OSD buttons"; color: theme.secondary; font.pixelSize: 11; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                                                                Label { visible: !monitorCard.modelData.brightness.available; text: "Use the controls on this display to adjust its brightness."; color: theme.secondary; font.pixelSize: 11; wrapMode: Text.Wrap; Layout.fillWidth: true }
                                                             }
                                                         }
                                                         RowLayout {
                                                             Layout.fillWidth: true
                                                             Label { text: monitorCard.modelData.vrr ? "Variable refresh supported" : "Modes: " + monitorCard.modelData.modes.length; color: theme.secondary; font.pixelSize: 10; Layout.fillWidth: true }
-                                                            ProButton { text: root.monitorApplying ? "Applying…" : "Apply " + monitorCard.modelData.name + " settings"; primary: true; enabled: !root.monitorApplying && !root.monitorPendingBackup && monitorCard.modelData.modes.length > 0; onClicked: root.applyMonitor(monitorCard.modelData.name, monitorCard.draftMode, root.monitorPositionX(monitorCard.modelData.name), root.monitorPositionY(monitorCard.modelData.name), monitorScale.value / 100) }
+                                                            ProButton { text: root.monitorApplying ? "Applying…" : "Apply " + monitorCard.modelData.name + " settings"; primary: true; enabled: !root.monitorLayoutBusy && monitorCard.modelData.modes.length > 0; onClicked: root.applyMonitor(monitorCard.modelData.name, monitorCard.draftMode, root.monitorPositionX(monitorCard.modelData.name), root.monitorPositionY(monitorCard.modelData.name), monitorScale.value / 100) }
                                                         }
                                                     }
                                                 }
@@ -1418,17 +1471,26 @@ Item {
                 anchors.centerIn: parent
                 width: Math.min(440, frame.width - 40)
                 modal: true
+                focus: true
                 title: "Add from web link"
+                onOpened: link.forceActiveFocus()
+                function importLink() {
+                    const url = link.text.trim()
+                    if (worker.running || !url) return
+                    root.run(["import", url])
+                    close()
+                }
                 background: Rectangle { color: theme.colors.background; radius: 15; border.color: root.divider }
                 ColumnLayout {
                     width: parent.width
                     spacing: 16
                     Label { text: "Paste a direct image or video URL."; color: theme.secondary; font.pixelSize: 13 }
-                    ProField { id: link; Layout.fillWidth: true; placeholderText: "https://…"; onAccepted: if (text.trim()) { root.run(["import", text.trim()]); urlDialog.close() } }
+                    ProField { id: link; Layout.fillWidth: true; placeholderText: "https://…"; onAccepted: urlDialog.importLink() }
                     RowLayout {
+                        Layout.fillWidth: true
                         Item { Layout.fillWidth: true }
                         ProButton { text: "Cancel"; quiet: true; onClicked: urlDialog.close() }
-                        ProButton { text: "Import wallpaper"; primary: true; enabled: !worker.running && link.text.trim() !== ""; onClicked: { root.run(["import", link.text.trim()]); urlDialog.close() } }
+                        ProButton { text: "Import wallpaper"; primary: true; enabled: !worker.running && link.text.trim() !== ""; onClicked: urlDialog.importLink() }
                     }
                 }
             }
@@ -1453,7 +1515,7 @@ Item {
                     spacing: 8
                     Label { text: "Playback & library"; color: theme.colors.foreground; font.pixelSize: 16; font.weight: Font.DemiBold; Layout.bottomMargin: 8 }
                     ProButton {
-                        visible: !root.state.contextAvailable
+                        visible: !root.libraryState.contextAvailable
                         text: "Enable smart grouping"
                         primary: true
                         enabled: !worker.running
@@ -1461,7 +1523,7 @@ Item {
                         onClicked: root.run(["install-context"])
                     }
                     Label {
-                        visible: !root.state.contextAvailable
+                        visible: !root.libraryState.contextAvailable
                         text: "Downloads a local image model and tools (about 530 MB on disk). Images stay on this device."
                         color: theme.secondary
                         font.pixelSize: 11
@@ -1469,25 +1531,25 @@ Item {
                         Layout.fillWidth: true
                     }
                     ProCheck {
-                        visible: !!root.state.contextAvailable
+                        visible: !!root.libraryState.contextAvailable
                         text: "Group by color, then image context"
-                        checked: !!root.state.contextEnabled
+                        checked: !!root.libraryState.contextEnabled
                         enabled: !worker.running
                         onClicked: root.run(["context", checked ? "on" : "off"])
                     }
                     Label {
-                        visible: !!root.state.contextEnabled
-                        text: (root.state.contextReport ? root.state.contextReport.analyzed + " wallpapers analyzed. " : "") + "Subject labels are automatic suggestions."
+                        visible: !!root.libraryState.contextEnabled
+                        text: (root.libraryState.contextReport ? root.libraryState.contextReport.analyzed + " wallpapers analyzed. " : "") + "Subject labels are automatic suggestions."
                         color: theme.secondary
                         font.pixelSize: 11
                         wrapMode: Text.Wrap
                         Layout.fillWidth: true
                     }
-                    ProCheck { text: "Pause video on battery"; checked: root.state.pauseOnBattery !== false; enabled: !worker.running; onClicked: root.run(["battery", checked ? "on" : "off"]) }
-                    ProCheck { text: "Pause behind fullscreen apps"; checked: root.state.pauseOnFullscreen !== false; enabled: !worker.running; onClicked: root.run(["fullscreen", checked ? "on" : "off"]) }
+                    ProCheck { text: "Pause video on battery"; checked: root.libraryState.pauseOnBattery !== false; enabled: !worker.running; onClicked: root.run(["battery", checked ? "on" : "off"]) }
+                    ProCheck { text: "Pause behind fullscreen apps"; checked: root.libraryState.pauseOnFullscreen !== false; enabled: !worker.running; onClicked: root.run(["fullscreen", checked ? "on" : "off"]) }
                     Label { text: "Videos loop silently. Panoramic video uses drift correction and is not frame locked."; color: theme.secondary; font.pixelSize: 11; wrapMode: Text.Wrap; Layout.fillWidth: true; Layout.bottomMargin: 10 }
-                    Rectangle { Layout.fillWidth: true; height: 1; color: root.divider }
-                    ProButton { text: "Sync theme wallpapers"; quiet: true; Layout.fillWidth: true; enabled: !themeSync.running; onClicked: root.startThemeSync() }
+                    Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: root.divider }
+                    ProButton { text: "Sync theme wallpapers"; quiet: true; Layout.fillWidth: true; enabled: !themeSync.running; onClicked: root.startThemeSync(true) }
                     ProButton { text: "Use Omarchy wallpaper"; quiet: true; Layout.fillWidth: true; enabled: !worker.running; onClicked: root.run(["off"]) }
                     ProButton { text: "Clear this monitor"; quiet: true; Layout.fillWidth: true; enabled: mode.currentIndex === 0 && !worker.running; onClicked: root.run(["unassign", monitor.currentText]) }
                     ProButton { text: "Remove selected wallpaper"; quiet: true; Layout.fillWidth: true; enabled: root.selectedMedia !== null && !root.selectedMedia.bundled && !root.selectedMedia.themeManaged && !worker.running; onClicked: root.run(["remove", root.selected]) }

@@ -13,7 +13,7 @@ ShellRoot {
         renderer.config: ({enabled: true, mode: "span", default: "smoke", pauseOnBattery: false,
             library: [{id: "smoke", kind: Quickshell.env("WALLPAPER_PRO_SMOKE_KIND") || "image",
                        url: Quickshell.env("WALLPAPER_PRO_SMOKE_MEDIA")}]})
-        state: ({library: [{id: "smoke", name: "Panoramic video test", kind: "video", url: Quickshell.env("WALLPAPER_PRO_SMOKE_MEDIA")}], mode: "span", default: "smoke", enabled: true, pauseOnBattery: false})
+        libraryState: ({library: [{id: "smoke", name: "Panoramic video test", kind: "video", url: Quickshell.env("WALLPAPER_PRO_SMOKE_MEDIA")}], mode: "span", default: "smoke", enabled: true, pauseOnBattery: false})
         selected: "smoke"
         message: "Playback test · 2 connected monitors"
     }
