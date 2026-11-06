@@ -1,14 +1,15 @@
 # Release checklist
 
-## GitHub prerelease
+## GitHub release
 
 1. Run the [checks in the README](../README.md) and review the manual checks below. Use the [Omarchy Shell Plugins manual](https://omarchy.org/manual/shell-plugins/) for the host contract.
 2. Merge the release changes and verify that GitHub Actions passes on the commit you intend to tag.
-3. From the release commit, create a draft GitHub prerelease with the version from `manifest.json`.
+3. From the release commit, create a draft GitHub release with the version from `manifest.json`.
 
    ```sh
-   gh release create v0.9.0-alpha.21 --target "$(git rev-parse HEAD)" --draft --prerelease \
-     --title "Wallpaper Pro 0.9.0-alpha.21" --notes-file docs/RELEASE-NOTES.md
+   version=$(jq -r .version manifest.json)
+   gh release create "v$version" --target "$(git rev-parse HEAD)" --draft \
+     --title "Wallpaper Pro $version" --notes-file docs/RELEASE-NOTES.md
    ```
 
 4. Review the target commit and rendered notes in GitHub, then publish the draft. GitHub provides source archives for the tag.
