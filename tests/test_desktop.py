@@ -10,6 +10,27 @@ from test_library import app
 
 
 class DesktopCompatibilityTests(unittest.TestCase):
+    def test_pending_layout_decisions_preserve_external_edits(self):
+        for action, external_edit, expected in (
+            ('keep', False, 'candidate'),
+            ('revert', False, 'original'),
+            ('timeout', False, 'original'),
+            ('timeout', True, 'external'),
+        ):
+            with self.subTest(action=action, external_edit=external_edit), tempfile.TemporaryDirectory() as directory:
+                with patch.dict('os.environ', XDG_CONFIG_HOME=directory), patch.object(app, 'reload_monitor_layout'), patch.object(app.subprocess, 'Popen') as watchdog, patch.object(app.time, 'sleep'):
+                    with app.monitor_layout_lock() as (config, pending):
+                        config.parent.mkdir()
+                        config.write_text('original')
+                        backup = app.apply_monitor_layout(config, 'candidate', True, pending)
+                    self.assertTrue(watchdog.call_args.kwargs['start_new_session'])
+                    if external_edit:
+                        config.write_text('external')
+                    app.monitor_decision(SimpleNamespace(action=action, backup=backup))
+                    self.assertEqual(config.read_text(), expected)
+                    self.assertEqual(Path(backup).read_text(), 'original')
+                    self.assertFalse(pending.exists())
+
     def test_layout_edits_ignore_commented_monitor_rules(self):
         commented = '-- hl.monitor({ output = "DP-1", mode = "preferred", position = "auto", scale = 1 })\n'
         monitor = {'name': 'DP-1', 'availableModes': ['1920x1080@60.00Hz']}

@@ -2,6 +2,7 @@
 """Wallpaper Pro's library and settings. Stdlib only; never evaluates shell input."""
 import argparse
 import colorsys
+from contextlib import contextmanager
 import math
 import re
 import tomllib
@@ -23,6 +24,7 @@ IMAGE = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.avif'}
 VIDEO = {'.mp4', '.webm', '.mkv', '.mov', '.m4v', '.gif'}
 MAX_BYTES = 512 * 1024 * 1024
 MONITOR_RULE = re.compile(r'^([ \t]*)hl\.monitor\(\s*\{([^{}]*)\}\s*\)', re.M)
+MONITOR_CONFIRM_SECONDS = 15
 
 
 def directories():
@@ -831,7 +833,69 @@ def monitor_catalog():
     print(json.dumps({'monitors': monitors}))
 
 
-def monitor_set(args):
+def monitor_config():
+    return Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'hypr/monitors.lua'
+
+
+@contextmanager
+def monitor_layout_lock():
+    config = monitor_config()
+    config_dir, _ = directories()
+    config_dir.mkdir(parents=True, exist_ok=True)
+    with (config_dir / '.monitor-layout.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield config, config_dir / 'pending-monitor-layout.json'
+
+
+def write_monitor_config(config, content, mode_source):
+    # Keep a symlinked config in place and avoid exposing a partially written file.
+    target = config.resolve()
+    fd, filename = tempfile.mkstemp(dir=target.parent, prefix='.wallpaper-pro-monitor-')
+    temporary = Path(filename)
+    try:
+        with os.fdopen(fd, 'wb') as output:
+            output.write(content)
+        shutil.copymode(mode_source, temporary)
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def apply_monitor_layout(config, updated, confirm, pending):
+    stamp = time.strftime('%Y%m%d-%H%M%S') + '-' + str(time.time_ns() % 1_000_000_000)
+    backup = config.with_name(config.name + '.bak-wallpaper-pro-' + stamp).resolve()
+    shutil.copy2(config, backup)
+    if confirm:
+        save(pending, {'backup': str(backup), 'digest': hashlib.sha256(updated.encode()).hexdigest()})
+        try:
+            subprocess.Popen(
+                [sys.executable, str(Path(__file__).resolve()), 'monitor-decision', 'timeout', str(backup)],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except OSError:
+            pending.unlink()
+            raise
+    try:
+        write_monitor_config(config, updated.encode(), backup)
+        reload_monitor_layout()
+    except (OSError, ValueError, subprocess.SubprocessError):
+        write_monitor_config(config, backup.read_bytes(), backup)
+        if confirm:
+            pending.unlink(missing_ok=True)
+        reload_monitor_layout()
+        raise
+    return str(backup)
+
+
+def reload_monitor_layout():
+    reload_result = subprocess.run(['hyprctl', 'reload'], capture_output=True, text=True, timeout=12, check=False)
+    errors = subprocess.run(['hyprctl', 'configerrors'], capture_output=True, text=True, timeout=8, check=False)
+    if reload_result.returncode or errors.returncode or errors.stdout.strip():
+        raise ValueError('Hyprland could not load the monitor layout')
+
+
+def monitor_set(args, pending=None):
     if not shutil.which('hyprctl'):
         raise ValueError('Hyprland is not available')
     queried = subprocess.run(['hyprctl', 'monitors', '-j'], capture_output=True, text=True, timeout=8, check=True)
@@ -845,7 +909,7 @@ def monitor_set(args):
         raise ValueError('Choose a mode supported by this monitor')
     if not (-20000 <= args.x <= 20000 and -20000 <= args.y <= 20000 and 0.5 <= args.scale <= 3.0):
         raise ValueError('Position or scale is outside the supported range')
-    config = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'hypr/monitors.lua'
+    config = monitor_config()
     if not config.is_file():
         raise ValueError('Could not find ~/.config/hypr/monitors.lua')
     display = None
@@ -877,16 +941,7 @@ def monitor_set(args):
     updated = MONITOR_RULE.sub(update_monitor, original)
     if not found:
         updated = updated.rstrip() + '\n\nhl.monitor({ output = "' + args.name + '", mode = "' + args.mode + '", position = "' + str(args.x) + 'x' + str(args.y) + '", scale = ' + str(args.scale) + ' })\n'
-    stamp = time.strftime('%Y%m%d-%H%M%S') + '-' + str(time.time_ns() % 1_000_000_000)
-    backup = config.with_name(config.name + '.bak-wallpaper-pro-' + stamp)
-    shutil.copy2(config, backup)
-    config.write_text(updated)
-    reload_result = subprocess.run(['hyprctl', 'reload'], capture_output=True, text=True, timeout=12, check=False)
-    errors = subprocess.run(['hyprctl', 'configerrors'], capture_output=True, text=True, timeout=8, check=False)
-    if reload_result.returncode or errors.returncode or errors.stdout.strip():
-        shutil.copy2(backup, config)
-        subprocess.run(['hyprctl', 'reload'], capture_output=True, text=True, timeout=12, check=False)
-        raise ValueError('Hyprland rejected the monitor layout. The previous configuration was restored.')
+    backup = apply_monitor_layout(config, updated, getattr(args, 'confirm', False), pending)
     if args.brightness is not None:
         current_brightness = subprocess.run(['ddcutil', 'getvcp', '10', '--display', display, '--brief'], capture_output=True, text=True, timeout=8, check=False)
         brightness_match = re.search(r'VCP\s+10\s+\S+\s+(\d+)\s+(\d+)', current_brightness.stdout)
@@ -920,20 +975,49 @@ def monitor_brightness(args):
 
 
 def monitor_restore(args):
-    config = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'hypr/monitors.lua'
-    backup = Path(args.backup).expanduser().resolve()
-    expected_parent = config.parent.resolve()
-    if backup.parent != expected_parent or not backup.name.startswith(config.name + '.bak-wallpaper-pro-') or not backup.is_file():
-        raise ValueError('This monitor backup is missing or is not a Wallpaper Pro backup')
-    shutil.copy2(backup, config)
-    reload_result = subprocess.run(['hyprctl', 'reload'], capture_output=True, text=True, timeout=12, check=False)
-    errors = subprocess.run(['hyprctl', 'configerrors'], capture_output=True, text=True, timeout=8, check=False)
-    if reload_result.returncode or errors.returncode or errors.stdout.strip():
-        raise ValueError('The saved monitor layout could not be restored cleanly')
+    config = monitor_config()
+    restore_monitor_backup(config, args.backup)
     print(json.dumps({'ok': True}))
 
 
-def monitor_profile(args):
+def restore_monitor_backup(config, filename):
+    backup = Path(filename).expanduser().resolve()
+    expected_parent = config.parent.resolve()
+    if backup.parent != expected_parent or not backup.name.startswith(config.name + '.bak-wallpaper-pro-') or not backup.is_file():
+        raise ValueError('This monitor backup is missing or is not a Wallpaper Pro backup')
+    write_monitor_config(config, backup.read_bytes(), backup)
+    reload_monitor_layout()
+
+
+def monitor_decision(args):
+    if args.action == 'timeout':
+        # The writer holds this lock until Hyprland has applied the new layout.
+        with monitor_layout_lock():
+            deadline = time.monotonic() + MONITOR_CONFIRM_SECONDS
+        time.sleep(max(0, deadline - time.monotonic()))
+    with monitor_layout_lock() as (config, pending):
+        transaction = json.loads(pending.read_text()) if pending.exists() else {}
+        if transaction.get('backup') != args.backup:
+            if args.action == 'keep':
+                raise ValueError('This layout is no longer awaiting confirmation.')
+            return
+        if not config.is_file() or hashlib.sha256(config.read_bytes()).hexdigest() != transaction['digest']:
+            pending.unlink()
+            if args.action != 'timeout':
+                raise ValueError('The monitor configuration changed outside Wallpaper Pro.')
+            return
+        try:
+            if args.action != 'keep':
+                restore_monitor_backup(config, args.backup)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            if args.action == 'timeout':
+                pending.unlink(missing_ok=True)
+            raise
+        else:
+            pending.unlink()
+
+
+def monitor_profile(args, pending=None):
     config_dir, _ = directories()
     path = config_dir / 'monitor-profiles.json'
     profiles = json.loads(path.read_text()) if path.exists() else []
@@ -980,7 +1064,7 @@ def monitor_profile(args):
             raise ValueError('Saved mode is no longer supported by ' + item['name'])
         if not (-20000 <= int(item.get('x', 0)) <= 20000 and -20000 <= int(item.get('y', 0)) <= 20000 and 0.5 <= float(item.get('scale', 1)) <= 3.0):
             raise ValueError('Saved position or scale is outside the supported range')
-    config = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'hypr/monitors.lua'
+    config = monitor_config()
     if not config.is_file():
         raise ValueError('Could not find ~/.config/hypr/monitors.lua')
     original = config.read_text()
@@ -1007,17 +1091,8 @@ def monitor_profile(args):
     for item in updates:
         if item['name'] not in updated_names:
             updated += '\n\nhl.monitor({ output = "' + item['name'] + '", mode = "' + item['mode'] + '", position = "' + str(int(item['x'])) + 'x' + str(int(item['y'])) + '", scale = ' + str(float(item['scale'])) + ' })'
-    stamp = time.strftime('%Y%m%d-%H%M%S') + '-' + str(time.time_ns() % 1_000_000_000)
-    backup = config.with_name(config.name + '.bak-wallpaper-pro-' + stamp)
-    shutil.copy2(config, backup)
-    config.write_text(updated + ('\n' if not updated.endswith('\n') else ''))
-    reload_result = subprocess.run(['hyprctl', 'reload'], capture_output=True, text=True, timeout=12, check=False)
-    errors = subprocess.run(['hyprctl', 'configerrors'], capture_output=True, text=True, timeout=8, check=False)
-    if reload_result.returncode or errors.returncode or errors.stdout.strip():
-        shutil.copy2(backup, config)
-        subprocess.run(['hyprctl', 'reload'], capture_output=True, text=True, timeout=12, check=False)
-        raise ValueError('Hyprland rejected the monitor profile. The previous configuration was restored.')
-    print(json.dumps({'ok': True, 'backup': str(backup), 'profile': args.name}))
+    backup = apply_monitor_layout(config, updated.rstrip('\n') + '\n', getattr(args, 'confirm', False), pending)
+    print(json.dumps({'ok': True, 'backup': backup, 'profile': args.name}))
 
 
 def monitor_catalog_data(monitors):
@@ -1062,11 +1137,16 @@ def main():
     monitor.add_argument('--y', required=True, type=int)
     monitor.add_argument('--scale', required=True, type=float)
     monitor.add_argument('--brightness', type=int)
+    monitor.add_argument('--confirm', action='store_true')
     restore = commands.add_parser('monitor-restore', help='Restore a saved monitor configuration backup')
     restore.add_argument('backup')
+    decision = commands.add_parser('monitor-decision', help='Confirm or revert a pending monitor layout')
+    decision.add_argument('action', choices=['keep', 'revert', 'timeout'])
+    decision.add_argument('backup')
     profile = commands.add_parser('monitor-profile', help='Save, apply, list, or remove monitor layouts')
     profile.add_argument('action', choices=['list', 'save', 'apply', 'delete'])
     profile.add_argument('--name', default='')
+    profile.add_argument('--confirm', action='store_true')
     brightness = commands.add_parser('monitor-brightness', help='Adjust display brightness without changing monitor layout')
     brightness.add_argument('name')
     brightness.add_argument('value', type=int)
@@ -1097,11 +1177,19 @@ def main():
     if args.command == 'monitor-catalog':
         monitor_catalog()
         return
-    if args.command == 'monitor-set':
-        monitor_set(args)
+    if args.command == 'monitor-decision':
+        monitor_decision(args)
         return
-    if args.command == 'monitor-restore':
-        monitor_restore(args)
+    if args.command in ('monitor-set', 'monitor-restore') or (args.command == 'monitor-profile' and args.action == 'apply'):
+        with monitor_layout_lock() as (_, pending):
+            if pending.exists():
+                raise ValueError('A monitor layout is awaiting confirmation or rollback.')
+            if args.command == 'monitor-set':
+                monitor_set(args, pending)
+            elif args.command == 'monitor-restore':
+                monitor_restore(args)
+            else:
+                monitor_profile(args, pending)
         return
     if args.command == 'monitor-profile':
         monitor_profile(args)
@@ -1141,6 +1229,6 @@ def main():
 if __name__ == '__main__':
     try:
         main()
-    except (ValueError, OSError, KeyError) as error:
+    except (ValueError, OSError, KeyError, subprocess.SubprocessError) as error:
         print(str(error), file=sys.stderr)
         sys.exit(1)

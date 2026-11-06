@@ -29,7 +29,7 @@
 - [x] Apply and restore the current live monitor layout. Verify profile save, list, apply, restore, and delete against a temporary monitor configuration. Verify automatic rollback and prompt cleanup while the panel instance stays loaded.
 - [x] Write and read back hardware brightness on HDMI-A-2, then restore its original value. DP-2 did not expose DDC/CI brightness.
 - [x] Read the live theme catalog and current background, cycle and restore the live background, and apply a stock theme in an isolated Omarchy home.
-- [ ] Preserve the monitor rollback deadline when Omarchy Shell exits or reloads while a layout awaits confirmation.
+- [x] Verify automatic monitor rollback after the Quickshell process exits during confirmation.
 - [ ] Verify physical mixed-scale/rotated monitor seams, hotplug, and DPMS sleep/resume.
 - [x] Verify per-monitor fullscreen video pause/resume using a temporary Hyprland window; restore original wallpaper settings and focus.
 - [x] Verify Omarchy palette parsing and read-only competing-renderer diagnostics.
@@ -38,7 +38,8 @@
 - [ ] Create a tagged release after integration checks.
 - [x] Refresh the public README screenshots for the current gallery and full-page theme picker.
 - [x] Publish the public GitHub repository: https://github.com/BraveHart911/wallpaper-pro.
-- [ ] Submit the repository URL, category, and tags using the issue form linked from the [marketplace publishing guide](https://plugins.omarchy.org/publish.html).
+- [x] Submit the repository URL, category, and tags using the marketplace issue form. [Wallpaper Pro submission](https://github.com/omacom/omarchy-plugin-marketplace/issues/13818)
+- [ ] Receive listing approval from the marketplace maintainers.
 
 The marketplace's maintainers approve listings. A valid manifest alone does not mean approval or runtime correctness.
 

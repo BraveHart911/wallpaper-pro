@@ -110,7 +110,7 @@ Item {
     }
     Process {
         id: monitorApplyProcess
-        command: ["python3", root.script, "monitor-set"].concat(root.monitorArgs)
+        command: ["python3", root.script, "monitor-set", "--confirm"].concat(root.monitorArgs)
         stdout: StdioCollector { onStreamFinished: { try { root.beginMonitorConfirmation(JSON.parse(text).backup || "") } catch (e) { root.monitorError = "Layout was applied, but its rollback backup could not be read." } } }
         stderr: StdioCollector { onStreamFinished: if (text.trim()) root.monitorError = text.trim() }
         onExited: function(code, status) {
@@ -123,7 +123,7 @@ Item {
     }
     Process {
         id: monitorProfileProcess
-        command: ["python3", root.script, "monitor-profile", root.monitorProfileAction].concat(root.monitorProfileAction === "list" ? [] : ["--name", root.monitorProfileName])
+        command: ["python3", root.script, "monitor-profile", root.monitorProfileAction].concat(root.monitorProfileAction === "list" ? [] : ["--name", root.monitorProfileName]).concat(root.monitorProfileAction === "apply" ? ["--confirm"] : [])
         stdout: StdioCollector { onStreamFinished: { try { root.monitorProfileResult = JSON.parse(text) } catch (e) { root.monitorProfileResult = ({}) } } }
         stderr: StdioCollector { onStreamFinished: if (text.trim()) root.monitorError = text.trim() }
         onExited: function(code, status) {
@@ -145,18 +145,26 @@ Item {
         }
     }
     Process {
-        id: monitorRestoreProcess
-        command: ["python3", root.script, "monitor-restore", root.monitorPendingBackup]
+        id: monitorDecisionProcess
+        property string action: "revert"
+        command: ["python3", root.script, "monitor-decision", action, root.monitorPendingBackup]
         stderr: StdioCollector { onStreamFinished: if (text.trim()) root.monitorError = text.trim() }
         onExited: function(code, status) {
+            if (code !== 0 && action === "keep") {
+                if (!root.monitorError) root.monitorError = "Could not keep the monitor layout."
+                if (root.monitorConfirmSeconds <= 0) root.revertMonitorChanges()
+                return
+            }
             monitorConfirmTimer.stop()
             root.monitorConfirmSeconds = 0
-            if (code === 0) {
-                root.monitorPendingBackup = ""
-                root.monitorError = ""
-                root.refreshMonitors()
-                root.monitorMessage = "Previous monitor setup restored."
-            } else if (!root.monitorError) root.monitorError = "Could not restore the previous monitor setup."
+            root.monitorPendingBackup = ""
+            if (code !== 0) {
+                if (!root.monitorError) root.monitorError = "Could not restore the previous monitor setup."
+                return
+            }
+            root.monitorError = ""
+            root.refreshMonitors()
+            root.monitorMessage = action === "keep" ? "Monitor layout saved. A recovery backup was kept." : "Previous monitor setup restored."
         }
     }
     Timer {
@@ -167,7 +175,7 @@ Item {
             root.monitorConfirmSeconds -= 1
             if (root.monitorConfirmSeconds <= 0) {
                 stop()
-                if (root.monitorPendingBackup && !monitorRestoreProcess.running) monitorRestoreProcess.running = true
+                root.revertMonitorChanges()
             }
         }
     }
@@ -413,14 +421,15 @@ Item {
         monitorConfirmTimer.restart()
     }
     function confirmMonitorChanges() {
-        monitorConfirmTimer.stop()
-        monitorPendingBackup = ""
-        monitorConfirmSeconds = 0
-        monitorMessage = "Monitor layout saved. A recovery backup was kept."
+        if (!monitorPendingBackup || monitorDecisionProcess.running || monitorConfirmSeconds <= 0) return
+        monitorDecisionProcess.action = "keep"
+        monitorDecisionProcess.running = true
     }
     function revertMonitorChanges() {
         monitorConfirmTimer.stop()
-        if (monitorPendingBackup && !monitorRestoreProcess.running) monitorRestoreProcess.running = true
+        if (!monitorPendingBackup || monitorDecisionProcess.running) return
+        monitorDecisionProcess.action = "revert"
+        monitorDecisionProcess.running = true
     }
     function runMonitorProfile(action, name) {
         if (monitorProfileProcess.running || monitorLayoutBusy) return
@@ -1135,8 +1144,8 @@ Item {
                                             id: monitorNoticeLayout
                                             anchors.fill: parent; anchors.margins: 11; spacing: 8
                                             Label { id: monitorNotice; Layout.fillWidth: true; text: root.monitorError || root.monitorMessage; color: root.monitorError ? theme.colors.red : theme.secondary; wrapMode: Text.Wrap; font.pixelSize: 12 }
-                                            ProButton { visible: !!root.monitorPendingBackup; text: monitorRestoreProcess.running ? "Reverting…" : "Revert · " + root.monitorConfirmSeconds + "s"; quiet: true; enabled: !monitorRestoreProcess.running; onClicked: root.revertMonitorChanges() }
-                                            ProButton { visible: !!root.monitorPendingBackup; text: "Keep layout"; primary: true; enabled: !monitorRestoreProcess.running; onClicked: root.confirmMonitorChanges() }
+                                            ProButton { visible: !!root.monitorPendingBackup; text: monitorDecisionProcess.running && monitorDecisionProcess.action === "revert" ? "Reverting…" : "Revert · " + root.monitorConfirmSeconds + "s"; quiet: true; enabled: !monitorDecisionProcess.running; onClicked: root.revertMonitorChanges() }
+                                            ProButton { visible: !!root.monitorPendingBackup; text: "Keep layout"; primary: true; enabled: !monitorDecisionProcess.running && root.monitorConfirmSeconds > 0; onClicked: root.confirmMonitorChanges() }
                                         }
                                     }
                                     ScrollView {
