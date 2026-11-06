@@ -1,4 +1,8 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
+import os
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 import threading
@@ -46,6 +50,21 @@ class DownloadTests(unittest.TestCase):
             for name in ['image.png', 'redirect.png']:
                 media = app.import_media(self.url + '/' + name, Path(tmp))
                 self.assertEqual(Path(media['path']).read_bytes(), PNG)
+
+    def test_cli_requires_stdin_for_web_links(self):
+        url = self.url + '/image.png?token=test%2Btoken&part=1'
+        command = [sys.executable, app.__file__, 'import']
+        with tempfile.TemporaryDirectory() as tmp:
+            env = dict(os.environ, XDG_CONFIG_HOME=tmp, XDG_DATA_HOME=tmp)
+            rejected = subprocess.run(command + [url], capture_output=True, env=env, timeout=10)
+            self.assertEqual(rejected.returncode, 2)
+            self.assertIn(b'--stdin', rejected.stderr)
+            self.assertNotIn(url.encode(), rejected.stderr)
+
+            imported = subprocess.run(command + ['--stdin'], input=url.encode(),
+                                      capture_output=True, env=env, timeout=30, check=True)
+            media = next(item for item in json.loads(imported.stdout)['library'] if item['source'] == url)
+            self.assertEqual(Path(media['path']).read_bytes(), PNG)
 
     def test_failure_cleanup(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -1160,7 +1160,9 @@ def main():
     battery = commands.add_parser('battery')
     battery.add_argument('value', choices=['on', 'off'])
     imp = commands.add_parser('import')
-    imp.add_argument('source')
+    sources = imp.add_mutually_exclusive_group(required=True)
+    sources.add_argument('source', nargs='?', help='Local file path or file URL')
+    sources.add_argument('--stdin', action='store_true', help='Read a UTF-8 source from standard input')
     folder = commands.add_parser('import-folder', help='Import a local folder and all media subfolders')
     folder.add_argument('source')
     folder.add_argument('--progress', action='store_true', help='Emit JSON progress events for the graphical manager')
@@ -1171,6 +1173,13 @@ def main():
     remove = commands.add_parser('remove')
     remove.add_argument('id')
     args = parser.parse_args()
+    if args.command == 'import':
+        if args.stdin:
+            args.source = sys.stdin.buffer.read().decode('utf-8')
+            if not args.source:
+                imp.error('No import source received on standard input')
+        elif urllib.parse.urlparse(args.source).scheme in ('http', 'https'):
+            imp.error('Pass HTTP(S) import links using --stdin')
     if args.command == 'theme-catalog':
         theme_catalog()
         return

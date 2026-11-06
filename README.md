@@ -2,7 +2,7 @@
 
 An Omarchy shell plugin for a personal image and live wallpaper collection.
 
-**Current release · 0.9.0**
+**Current release · 0.9.1**
 
 ## Current features
 
@@ -147,13 +147,15 @@ Previews live in `$XDG_DATA_HOME/wallpaper-pro/thumbnails` (default `~/.local/sh
 
 ```sh
 python3 scripts/wallpaper-pro.py import '/path/to/image.png'
-python3 scripts/wallpaper-pro.py import 'https://example.org/wallpaper.mp4'
+printf '%s' 'https://example.org/wallpaper.mp4' | python3 scripts/wallpaper-pro.py import --stdin
 python3 scripts/wallpaper-pro.py status
 python3 scripts/wallpaper-pro.py apply MEDIA_ID --mode individual --monitor DP-2
 python3 scripts/wallpaper-pro.py apply MEDIA_ID --mode all
 python3 scripts/wallpaper-pro.py apply MEDIA_ID --mode span
 python3 scripts/wallpaper-pro.py off
 ```
+
+Pass web links to `import --stdin` as UTF-8 with no trailing newline. For a private link, use the panel's **Add from web link** option to keep it out of shell history.
 
 `MEDIA_ID` comes from `status`. `unassign MONITOR` clears one saved monitor assignment; `battery on` and `battery off` control battery pausing. `omarchy-shell wallpaper-pro status` reports renderer state, per-monitor playback positions, and decoder errors while the plugin is enabled. `fullscreen on` and `fullscreen off` control fullscreen pausing. `remove MEDIA_ID` forgets an unassigned library entry; it retains the cached media file. Imports copy local files, leaving the originals untouched. Downloads have a 512 MiB limit and a 30-second socket timeout. Imports use ffprobe to reject files without a readable video/image stream. This checks stream metadata, not every frame; playback errors can still occur.
 

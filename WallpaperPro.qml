@@ -552,11 +552,22 @@ Item {
             operationError = ""
             message = pendingCommand === "import-folder" ? "Scanning folder and subfolders…" : "Working…"
         }
-        worker.command = ["python3", script].concat(args)
+        worker.inputSource = args[0] === "import" ? args[1] : ""
+        worker.stdinEnabled = args[0] === "import"
+        worker.command = ["python3", script].concat(worker.stdinEnabled ? ["import", "--stdin"] : args)
         worker.running = true
     }
     Process {
         id: worker
+        property string inputSource: ""
+        onStarted: {
+            if (stdinEnabled) {
+                write(inputSource)
+                inputSource = ""
+                stdinEnabled = false
+            }
+        }
+        onRunningChanged: if (!running) inputSource = ""
         stdout: SplitParser {
             onRead: function(line) {
                 try {
@@ -1487,6 +1498,7 @@ Item {
                     const url = link.text.trim()
                     if (worker.running || !url) return
                     root.run(["import", url])
+                    link.clear()
                     close()
                 }
                 background: Rectangle { color: theme.colors.background; radius: 15; border.color: root.divider }
